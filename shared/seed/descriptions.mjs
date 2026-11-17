@@ -5,6 +5,18 @@
 
 export const DEFAULT_SERVES = 4; // owner: "put 4 for now"; edit per dish in the admin panel
 
+// Owner, 2026-11-18: Desi Desserts is "12 ounces" for everything except these, which are 8 oz.
+// Dishes with a size show it instead of "Serves N".
+export const SIZE_BY_STALL = { "desi-desserts": "12 oz" };
+export const SIZE_EXCEPTIONS = {
+  "desi-desserts.apricot-delight": "8 oz",
+  "desi-desserts.rasmalai": "8 oz",
+  "desi-desserts.gulab-jamun": "8 oz",
+  // Owner, 2026-11-18: no size for these two (not drinks); they show the description only.
+  "desi-desserts.chocolate-chip-brownie": null,
+  "desi-desserts.poornalu": null,
+};
+
 export const descriptions = {
   // ------------------------------------------------ PandemKodi Dhaba · Curry + Pulka Combos
   "pandemkodi-dhaba.fish-curry-with-fresh-live-pulka": "Spicy, tangy fish curry with fresh live pulka off the tawa.",

@@ -69,6 +69,8 @@ export interface MenuItem {
   is_featured: boolean;
   /** How many people the dish serves. Null hides it. */
   serves: number | null;
+  /** Cup or portion size, e.g. "12 oz". Shown instead of "Serves N" when set. */
+  size_label: string | null;
   sort_order: number;
 }
 

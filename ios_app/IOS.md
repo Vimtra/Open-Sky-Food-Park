@@ -1,12 +1,26 @@
 # Open Sky iOS app
 
-The iOS app is the same Flutter app as Android (`mobile/`). There is no Mac here, so iOS is built in the cloud on GitHub's macOS machines by `.github/workflows/ios.yml`, the same approach as [ios-builder](https://github.com/MobAI-App/ios-builder).
+The iOS app is its own Flutter project, `ios_app/`, separate from the Android app (`mobile/`) at the owner's request: an iPhone-first design (night-sky band, the trucks as big tabs, rolling search hints, VEG switch, poster carousel, favourites) on the same menu data and order rules. There is no Mac here, so it is built in the cloud on GitHub's macOS machines by `.github/workflows/ios.yml`, the same approach as [ios-builder](https://github.com/MobAI-App/ios-builder).
 
-Who owns what (see `COLLAB.md`): Dart code and Android are Claude B's; `mobile/ios/` and the iOS workflow are Claude A's.
+Who owns what (see `COLLAB.md`): `ios_app/` and the iOS workflow are Claude A's; `mobile/` (Android) is Claude B's.
+
+## Run it on this PC (preview in a browser)
+
+From `ios_app/`:
+
+```bash
+node tool/sync-shared.mjs
+```
+
+```bash
+flutter run -d web-server --web-port 3100
+```
+
+Then open http://127.0.0.1:3100 at phone size. On this PC, first set `PUB_CACHE` to the short path `C:\Users\VIMTRA~1\AppData\Local\Pub\Cache`: the space in the user folder name breaks the web compiler.
 
 ## Build it
 
-- Every push to `main` that touches `mobile/` (except `mobile/android/`) or the shared menu builds it automatically.
+- Every push to `main` that touches `ios_app/` or the shared menu builds it automatically.
 - Or run it by hand: GitHub → **Actions → iOS build → Run workflow**.
 - Download the result from the run's **Artifacts**:
   - `OpenSky-ios-unsigned.ipa`: the iPhone app, not yet signed.
@@ -30,7 +44,7 @@ Apple only lets signed apps run. Pick one:
 1. Join the Apple Developer Program with the business's Apple ID.
 2. App Store Connect → **Users and Access → Integrations → App Store Connect API**: create a key with **Admin** (or App Manager) access. Download the `.p8` file once.
 3. Create the app record in App Store Connect: bundle id **`com.openskyfoodpark.openSky`**, name "Open Sky Food Park".
-4. Install the ios-builder CLI (Windows release `builder-windows-amd64.exe`, renamed to `builder.exe`), then from `mobile/`:
+4. Install the ios-builder CLI (Windows release `builder-windows-amd64.exe`, renamed to `builder.exe`), then from `ios_app/`:
 
    ```bash
    builder auth github
@@ -62,7 +76,7 @@ Apple only lets signed apps run. Pick one:
 - A privacy policy URL and support URL (the website's `/help` and `/contact` can serve as support).
 - App Store screenshots (6.9" and 6.5" iPhone, 13" iPad if iPad stays supported).
 - Apple guideline 4.8: an app that offers Google sign-in must also offer a privacy-focused option such as **Sign in with Apple**. Add it before submitting (Supabase supports Apple as a provider).
-- The app currently runs on demo data; it needs the Supabase connection first (board items A9, B2).
+- The app currently runs on demo data (orders stay on the phone and move along by themselves); it needs the Supabase connection first (board item A9).
 
 ## Screenshots without installing anything
 

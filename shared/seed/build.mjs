@@ -7,7 +7,7 @@
 // prints only one price (Fresh Live Pulka, $1.99) and the Desi Desserts menu prints
 // none for Chocolate Chip Brownie. Replace those before going live.
 
-import { DEFAULT_SERVES, descriptions } from "./descriptions.mjs";
+import { DEFAULT_SERVES, descriptions, SIZE_BY_STALL, SIZE_EXCEPTIONS } from "./descriptions.mjs";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -258,13 +258,15 @@ stallSources.forEach((s, si) => {
       const id = `${s.slug}.${slugify(name)}`;
       if (menu_items.some((m) => m.id === id)) throw new Error(`duplicate item id ${id}`);
       if (opt.placeholder) placeholder_price_item_ids.push(id);
+      const size_label = id in SIZE_EXCEPTIONS ? SIZE_EXCEPTIONS[id] : (SIZE_BY_STALL[s.slug] ?? null);
       menu_items.push({
         id,
         stall_id: s.slug,
         category_id,
         name,
         description: descriptions[id] ?? opt.desc ?? null,
-        serves: DEFAULT_SERVES,
+        serves: s.slug in SIZE_BY_STALL ? null : DEFAULT_SERVES,
+        size_label,
         price_cents: cents(price),
         diet,
         image_url: photo(s.slug, slugify(name)) ?? opt.img ?? null,

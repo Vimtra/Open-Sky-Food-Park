@@ -31,9 +31,10 @@ export function imageSrc(url: string | null | undefined): string | null {
   return /^https?:\/\//.test(url) ? url : `/${url.replace(/^\/+/, "")}`;
 }
 
-/** "Serves 4 | Paneer in a creamy tomato-butter gravy." Either half may be missing. */
-export function dishBlurb(item: { serves: number | null; description: string | null }): string | null {
-  const parts = [item.serves ? `Serves ${item.serves}` : null, item.description?.trim() || null].filter(Boolean);
+/** "Serves 4 | Paneer in a creamy tomato-butter gravy." or "12 oz | Chilled milk with rose syrup." Either half may be missing. */
+export function dishBlurb(item: { serves: number | null; size_label?: string | null; description: string | null }): string | null {
+  const amount = item.size_label?.trim() || (item.serves ? `Serves ${item.serves}` : null);
+  const parts = [amount, item.description?.trim() || null].filter(Boolean);
   return parts.length ? parts.join(" | ") : null;
 }
 

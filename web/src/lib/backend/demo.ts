@@ -493,6 +493,7 @@ export function createDemoBackend(): Backend {
             is_available: true,
             is_featured: false,
             serves: null,
+            size_label: null,
             sort_order: c.menu_items.filter((m) => m.category_id === row.category_id).length + 1,
             ...row,
           });

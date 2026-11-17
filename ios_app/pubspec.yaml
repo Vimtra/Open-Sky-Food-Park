@@ -1,0 +1,37 @@
+name: open_sky_ios
+description: "Open Sky Food Park for iPhone: order from every truck in one cart."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_ui: ^1.1.7
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  # Kept in step with ../shared by `node tool/sync-shared.mjs`.
+  assets:
+    - assets/data/
+    - assets/brand/
+    - assets/hero/
+    - assets/img/brand/
+    - assets/img/pandemkodi-dhaba/
+    - assets/img/desi-desserts/
+    - assets/img/photo/pandemkodi-dhaba/
+    - assets/img/photo/desi-desserts/
+
+  fonts:
+    # Variable font (wght 300–900); OsText sets the matching weight axis.
+    - family: Figtree
+      fonts:
+        - asset: assets/fonts/Figtree-Variable.ttf

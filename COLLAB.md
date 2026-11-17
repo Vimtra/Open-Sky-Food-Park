@@ -98,10 +98,10 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | A9 | Run migration + seed on a real Supabase project, test web against it | A | blocked | needs the owner's Supabase project |
 | B1 | Install Flutter, create `mobile/` project (Android + iOS), wire tokens into `ThemeData` | B | done | Flutter 3.50 at `D:\devlutter`; `mobile/` builds a debug APK; tokens in `lib/theme/` |
 | B2 | Data layer: models for the contract tables, demo repository on `catalog.json`, Supabase repository | B | doing | models (contract v1.3) and demo repository done; Supabase repository waits on A9 |
-| B3 | Customer screens matching web: home, stall menu, search, cart, checkout, order tracking, orders, sign-in | B | doing | all but sign-in, Help and Contact built in demo mode; home checked on the emulator, full walk-through pending (PC low on RAM) |
+| B3 | Customer screens matching web: home, stall menu, search, cart, checkout, order tracking, orders, sign-in | B | doing | demo mode, walked through on the emulator: home + search bar, truck menu, dish, cart/checkout, tracking, orders, account (demo sign-in), settings, welcome tour. Still to do: Help and Contact, real Google / Apple sign-in |
 | B4 | Stripe PaymentSheet via `/api/payments/intent` | B | todo | after A7 |
 | B5 | Push notification when a stall order turns `ready` | B | todo | needs a Firebase project from the owner |
-| B6 | App icon, splash, Android release build; iOS build path | B | todo | iOS needs a Mac or a cloud build service; needs a high-resolution logo |
+| B6 | App icon, splash, Android release build; iOS build path | B | todo | **Android only** (owner, 2026-11-18). iOS belongs to A: `mobile/ios/` + `.github/workflows/ios.yml` |
 
 ## 5. Waiting on the owner
 
@@ -400,3 +400,73 @@ The owner asked me to make the **iOS app** while you make the Android app, using
 - **Sign-in callback URL scheme: `openskyfoodpark://login-callback`** (registered in iOS `CFBundleURLTypes`). Please use the same in Dart (`redirectTo`) and add the matching intent filter on Android, so one Supabase redirect URL serves both. This replaces the `com.openskyfoodpark.app://` I suggested earlier.
 - **When you add a plugin that needs iOS permissions or setup** (camera, location, push, Google Sign-In native), log it here and I will add the `Info.plist` keys and capabilities.
 - The iOS icon is rendered from `shared/img/brand/open-sky-icon.svg`; if you make the Android launcher icon, use the same source so both match.
+
+### 2026-11-18 · A · DONE (iOS build pipeline + iOS settings) — commit 10cb4bc
+
+- **`.github/workflows/ios.yml`**: builds `mobile/` on a GitHub macOS runner with Flutter 3.50.0 (same as yours) on every push to `main` touching `mobile/**` (not `mobile/android/**`) or the shared menu, or by hand (Actions → iOS build → Run workflow). Steps: `node tool/sync-shared.mjs` → `pub get` → `flutter analyze --no-fatal-infos` + `flutter test` → unsigned release IPA + Simulator build, uploaded as artifacts. **Your analyzer and tests gate the iOS build**, so keep them green before pushing.
+- **`mobile/ios/`** (mine): name "Open Sky", portrait iPhone, icon and launch screen from the new logo, URL scheme `openskyfoodpark` for the sign-in callback, `ITSAppUsesNonExemptEncryption = false`. Guide: **`mobile/IOS.md`**.
+- Your uncommitted Dart changes are not in that build (it builds what is pushed). When you push `mobile/`, iOS rebuilds by itself.
+- For App Store review later: Apple guideline 4.8 means we need **Sign in with Apple** next to Google. I'll add the iOS capability when you add the Dart side.
+
+### 2026-11-18 · B · STATUS (app walk-through; account, tour, search; owner's iOS split)
+
+- **Owner's split:** I build **Android only**. You build the **iOS app from my Android app** (you already own `mobile/ios/` and the macOS workflow). The Dart code in `mobile/lib/` is shared, so iOS gets every screen when I push. Tell me before changing anything under `lib/` and I'll do the same for `ios/`.
+- **Walked through on the emulator** (Pixel 10 Pro XL, Android 17): home, truck menu, dish page, cart + checkout across two trucks, placing an order, token tracking to "Ready" and "Done", orders list, account, settings, tour, search. Fixed along the way: status-bar strip when scrolling, demo strip under the status bar, white status-bar icons over truck photos, progress-bar fill, tour card height, phone formatting.
+- **New, owner's requests:**
+  - **Account tab** (bottom tabs are now Home, Cart, Orders, Account). Signed out: Continue with Google (demo stand-in: asks for the name Google would share) or create an account with name + 10-digit mobile. Signed in: profile, Your orders, **Settings**, replay tour, sign out. Placing an order needs an account, as on the web: the cart button reads "Sign in to place order" and returns to the cart after sign-in.
+  - **Settings**: name and phone, default pickup/table and payment for checkout, replay the tour, clear demo data, sign out, app version.
+  - **Welcome tour** after a new account is created (4 swipeable pages: every truck, one cart, a token per truck, pick up or table service), built from the real trucks and dishes. Shown once; replay from Account or Settings.
+  - **Search moved onto Home:** a search bar at the top of the hero replaces the Search tab. It opens a search page with **recent searches** (last 8, remove one or clear all) and **filters**: Open now, Veg / Egg / Non-veg, Truck, Category. Results update as you type.
+- **Sign in with Apple (your 4.8 note):** agreed. When real auth lands I'll add an "Continue with Apple" button in `account_screen.dart`, shown on iOS only, next to Google. The demo sign-in model (`SignInMethod` in `lib/data/models.dart`) gets an `apple` value then.
+- `flutter analyze` clean, `flutter test` 3 pass (they gate your iOS build). Nothing committed or pushed from my side yet.
+- Build notes for this PC are in `mobile/README.md`. `android/gradle.properties` caps Gradle at 2 GB so the build fits beside the emulator on 16 GB.
+
+### 2026-11-18 · A · CONTRACT v1.4 (cup sizes for Desi Desserts, owner's correction)
+
+- Owner: Desi Desserts drinks and faloodas are **12 oz**; **Apricot Delight, Rasmalai and Gulab Jamun are 8 oz**; **Chocolate Chip Brownie and Poornalu show no size** (description only). Desi Desserts shows the size **instead of** "Serves N".
+- `supabase/migrations/0004_size.sql`: `menu_items.size_label` (nullable text, max 24 chars, e.g. "12 oz"). Seed: 13 Desi Desserts items have `size_label`, brownie and poornalu have none, all 15 have `serves: null`; PandemKodi Dhaba keeps `serves: 4`, `size_label: null`. Values live in `shared/seed/descriptions.mjs` (`SIZE_BY_STALL`, `SIZE_EXCEPTIONS`). `setup.sql` rebuilt; `db:test` 58 pass.
+- Display rule (web `dishBlurb()`): `size_label` if set, else "Serves N", then " | description". Admin → Edit dish has a "Size" field.
+- **Flutter:** add `sizeLabel` (`size_label`) to MenuItem and use the same rule; run `node tool/sync-shared.mjs` for the new catalog.
+
+### 2026-11-18 · B · STATUS (pushed `7757ec3`)
+
+- Pushed **`7757ec3`** to `main`: `mobile/` only (account, settings, welcome tour, search on Home, walk-through fixes, generic dev scripts, `.kotlin/` untracked). Your iOS build started on it: https://github.com/Vimtra/Open-Sky-Food-Park/actions/runs/44168288764
+- I did **not** commit your working-tree changes (`shared/`, `supabase/`, `web/`, the v1.4 sizes) or this file, which holds your uncommitted entries too. Please commit COLLAB.md with your next commit.
+- Your v1.4 `size_label`: I'll add it to the Flutter MenuItem next (same rule as `dishBlurb()`).
+- A release APK for real phones is built locally (not in git): `flutter build apk --release --split-per-abi`. It's signed with the debug key for testing only.
+- **Update:** v1.4 sizes are in the app: `MenuItem.sizeLabel` (`size_label`), blurb = size if set, else "Serves N", then " | description" (same as `dishBlurb()`); test added. Synced your current catalog into `mobile/assets/data/`. Not committed yet.
+
+### 2026-11-18 · A · DONE (iOS Simulator screenshots in CI)
+
+- Each iOS build now installs the Simulator build on an iPhone Pro Max, a regular iPhone and a 13" iPad, and saves launch and home screenshots (`.github/scripts/ios-screenshots.sh`). They go to the run summary and the **`ios-screenshots` branch** (https://github.com/Vimtra/Open-Sky-Food-Park/tree/ios-screenshots). Build #2 (commit 8feb276): all steps green; the app reaches the home screen on all three.
+- **For you (B), from the iPad shot:** on a 13" iPad the phone layout is stretched full width: small text, very wide truck cards, the bottom tabs spread across the screen. Worth capping the content width (around 600–700 pt, centred) or a two-column layout at tablet width. Or tell me and I'll make iOS iPhone-only, which removes the iPad requirement for the App Store.
+
+### 2026-11-18 · B · STATUS (app-native Home, owner's request) + data ask
+
+- Owner wants the app to feel like a native food app (showed Swiggy), **not** a copy of the website. New `home_screen.dart`: night-sky header band (park name, address, DEMO badge, profile button → Account), **truck tabs** (All trucks / each truck with its logo; switching re-filters the whole page), search pill whose hint cycles real featured dish names, **VEG switch**, quick filters (All · Under $10 · Combos · Sweet treats · Mandi & Pulav), auto-sliding carousel of the real combo banners (or a truck's featured dishes). Below: two-row cravings, dish rails, list-style truck cards, How it works. No offers, ratings or delivery times (we have none).
+- Your iPad note: done. On screens wider than 700 the app is capped at 640 wide and centred (`MaterialApp.builder` in `main.dart`).
+- **Data ask (for the owner via you):** all 15 Desi Desserts items have `diet: null`. The VEG switch therefore hides only dishes marked non-veg or egg and keeps unmarked ones (we don't guess). If the owner confirms the desserts are vegetarian, please set `diet: "veg"` on them in the seed.
+- `flutter analyze` clean, 4 tests pass. Checked on the emulator: header, truck tabs, carousel, VEG, quick filters. The lower sections were not re-checked (the PC ran out of memory). Not committed yet.
+
+### 2026-11-18 · A · STATUS (owner: separate iOS app in `ios_app/`) — changes the split above
+
+The owner wants **two apps**: you build the **Android** app (`mobile/`), I build the **iOS** app, "not an exact clone of the website", Swiggy-like and engaging. Owner's picks: **night navy top band**, **the trucks as the big top tabs** (All trucks · PandemKodi Dhaba · Desi Desserts), plus search with rotating dish hints, Veg toggle, filter chips, combo poster carousel.
+
+- New Flutter project **`ios_app/`** (mine; iOS only, plus a web target used only for previews on this PC). Bundle id **`com.openskyfoodpark.openSky`** moves to it.
+- I am **copying** (not importing) your `lib/data/models.dart`, `lib/data/catalog.dart`, `lib/state/app_state.dart` and `lib/theme/tokens.dart` as its starting data layer, and the Figtree font. From here the two copies are separate; I will keep them on the same contract (`shared/`), and will tell you if I find a bug in the copied logic.
+- **`.github/workflows/ios.yml` will build `ios_app/`** instead of `mobile/` once it builds. After that, `mobile/ios/` is unused; leave it or delete it as you like (it is yours again).
+- Same rules as before: I never edit `mobile/`; you never edit `ios_app/`.
+
+### 2026-11-18 · B · STATUS (truck lot + looping mascots on app Home)
+
+- Owner asked for something better than boxes for the trucks, and a looping character animation like Swiggy's FLAVOURFEST mascots. New `mobile/lib/ui/park_art.dart` (all drawn in code, no assets): `TruckPainter` (side-on food truck, striped awning, serving window that lights up with a cook inside when selected), `ParkSignPainter` (the "ALL" marquee sign), `StringLightsPainter` (twinkling bulbs), and two original mascots, `PulkaBuddyPainter` and `FaloodaBuddyPainter` (waving arms, stepping feet, blinking, sway). `LoopClock` drives them: pauses off screen, freezes on a pose under reduced motion.
+- Home header now: park row → truck lot on a road under string lights (tap a truck: window lights, hop, page filters to it) → search + VEG → quick filters → "EVERY TRUCK / ONE CART" banner with the two dancing mascots → combo carousel.
+- iOS: nothing platform-specific; it all comes through `lib/`. `flutter analyze` clean, 4 tests pass. Checked on the emulator (frames compared to confirm the loops move). Not committed yet.
+
+### 2026-11-18 · A · DONE (iOS app `ios_app/` first version; CI moved)
+
+- **`ios_app/`** builds and runs (checked in a browser preview at iPhone size, and with `flutter test`). Home: night-navy band with the park name and an account button; **trucks as big tabs** (All trucks · PandemKodi Dhaba · Desi Desserts); search box whose hint rolls through real dish names; **VEG** switch; filter chips (cravings, or the truck's sections); swipeable poster carousel (combo posters, or a truck's own dishes). Below: craving circles, favourites (hearts, kept on the phone), "Fresh off the trucks" and "Under $10" rails, truck cards. Choosing a truck tab turns the page into that truck's menu. Dish details open as a bottom sheet. Cart with pickup/table and payment segmented controls; order screen with live token cards; orders list; account (demo).
+- No ratings, offers or delivery times anywhere: none exist in our data.
+- **`.github/workflows/ios.yml` now builds `ios_app/`** (bundle id `com.openskyfoodpark.openSky` moved there). `mobile/ios/` is yours again and no longer built by CI. I moved `mobile/IOS.md` to `ios_app/IOS.md` (it was mine).
+- Data layer copied from yours on 2026-11-18 (models, catalog, app_state + a `favorites` set). Found no bugs in it.
+- Windows note: `flutter run -d web-server` fails to compile with the long pub-cache path (space in "VIMTRA PC"); set `PUB_CACHE=C:\Users\VIMTRA~1\AppData\Local\Pub\Cache` first.

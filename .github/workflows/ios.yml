@@ -1,4 +1,4 @@
-# Builds the Open Sky iOS app on a GitHub-hosted Mac (no Mac needed on our side),
+# Builds the Open Sky iOS app (ios_app/) on a GitHub-hosted Mac (no Mac needed on our side),
 # the same approach as github.com/MobAI-App/ios-builder.
 #
 # Output (Actions run → Artifacts):
@@ -9,7 +9,7 @@
 #                              summary page and kept on the `ios-screenshots` branch.
 #
 # Signed builds for TestFlight and the App Store need a paid Apple Developer account;
-# see mobile/IOS.md. Owner of this file: Claude A (see COLLAB.md).
+# see ios_app/IOS.md. Owner of this file: Claude A (see COLLAB.md).
 
 name: iOS build
 
@@ -18,8 +18,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "mobile/**"
-      - "!mobile/android/**"
+      - "ios_app/**"
       - "shared/seed/**"
       - "shared/img/**"
       - ".github/workflows/ios.yml"
@@ -38,7 +37,7 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        working-directory: mobile
+        working-directory: ios_app
     steps:
       - uses: actions/checkout@v4
 
@@ -121,5 +120,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OpenSky-ios-${{ github.run_number }}
-          path: mobile/dist/
+          path: ios_app/dist/
           retention-days: 14

@@ -160,6 +160,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
   const [diet, setDiet] = useState<string>(item?.diet ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [serves, setServes] = useState(item?.serves ? String(item.serves) : "");
+  const [size, setSize] = useState(item?.size_label ?? "");
   const [image, setImage] = useState(item?.image_url ?? "");
   const [craving, setCraving] = useState(item?.craving ?? "");
   const [available, setAvailable] = useState(item?.is_available ?? true);
@@ -182,6 +183,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
         diet: (diet || null) as Diet | null,
         description: blankToNull(description),
         serves: servesNum,
+        size_label: blankToNull(size)?.slice(0, 24) ?? null,
         image_url: blankToNull(image),
         craving: craving || null,
         is_available: available,
@@ -203,7 +205,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
           <option value="nonveg">Non-veg</option>
         </Select>
       </div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_9rem]">
+      <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_8rem_8rem]">
         <Text label="One-line description" value={description} onChange={setDescription} maxLength={140} hint="Shown under the price, e.g. “Paneer in a creamy tomato-butter gravy.”" />
         <Text
           label="Serves"
@@ -214,6 +216,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
           hint="People. Empty hides it."
           error={touched && !servesOk ? "Whole number, 1 to 50." : null}
         />
+        <Text label="Size" value={size} onChange={setSize} maxLength={24} placeholder="e.g. 12 oz" hint="Shown instead of Serves." />
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Select label="Shows under craving" value={craving} onChange={setCraving}>

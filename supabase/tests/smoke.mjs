@@ -84,8 +84,14 @@ await as("anon");
 check("anon reads stalls", (await one("select count(*)::int n from public.stalls")).n === catalog.stalls.length);
 check("anon reads menu items", (await one("select count(*)::int n from public.menu_items")).n === catalog.menu_items.length);
 check(
-  "every seeded dish has a description and a serves count",
-  (await one("select count(*)::int n from public.menu_items where description is null or serves is null")).n === 0,
+  "every seeded dish has a description",
+  (await one("select count(*)::int n from public.menu_items where description is null")).n === 0,
+);
+check(
+  "Desi Desserts sizes: 8 oz for apricot delight, rasmalai, gulab jamun; 12 oz for the drinks; none for brownie and poornalu",
+  (await one("select count(*)::int n from public.menu_items where stall_id = 'desi-desserts' and size_label = '8 oz'")).n === 3 &&
+    (await one("select count(*)::int n from public.menu_items where stall_id = 'desi-desserts' and size_label = '12 oz' and serves is null")).n === 10 &&
+    (await one("select count(*)::int n from public.menu_items where stall_id = 'desi-desserts' and size_label is null and serves is null")).n === 2,
 );
 check("anon cannot place an order", /permission denied|sign_in_required/.test((await fails("select public.place_order('{}'::jsonb)")) ?? ""));
 
