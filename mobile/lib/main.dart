@@ -25,6 +25,20 @@ class OpenSkyApp extends StatelessWidget {
         title: 'Open Sky Food Park',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
+        // Tablets: keep the phone layout at a readable width, centred, instead of stretching it.
+        builder: (context, child) {
+          final w = MediaQuery.sizeOf(context).width;
+          if (w <= 700) return child!;
+          return ColoredBox(
+            color: OsColors.surface2,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: MediaQuery(data: MediaQuery.of(context).copyWith(size: Size(640, MediaQuery.sizeOf(context).height)), child: child!),
+              ),
+            ),
+          );
+        },
         home: const Shell(),
       );
 }
@@ -56,14 +70,14 @@ class _ShellState extends State<Shell> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final pages = [
-      const HomeScreen(),
+      HomeScreen(onOpenAccount: () => _go(3)),
       CartScreen(onBrowse: () => _go(0)),
       OrdersScreen(onBrowse: () => _go(0)),
       AccountScreen(onOpenOrders: () => _go(2)),
     ];
     final live = app.orders.where((o) => o.status.name == 'active').length;
-    // Home's night hero shows through the status bar until you scroll; every other tab gets a white strip.
-    final heroUnderBar = _tab == 0 && !AppState.demo && !_homeScrolled;
+    // Home's night header shows through the status bar until you scroll; every other tab gets a white strip.
+    final heroUnderBar = _tab == 0 && !_homeScrolled;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: heroUnderBar ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
@@ -76,7 +90,7 @@ class _ShellState extends State<Shell> {
             top: 0,
             height: MediaQuery.paddingOf(context).top,
             child: AnimatedOpacity(
-              opacity: heroUnderBar || (_tab == 0 && !_homeScrolled) ? 0 : 1,
+              opacity: heroUnderBar ? 0 : 1,
               duration: OsMotion.popover,
               child: const DecoratedBox(
                 decoration: BoxDecoration(color: OsColors.surface0, border: Border(bottom: BorderSide(color: OsColors.line))),

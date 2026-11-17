@@ -51,6 +51,18 @@ class AppState extends ChangeNotifier {
   /// True once the welcome tour has been shown after the account was created.
   bool tourSeen = false;
 
+  /// Home's VEG switch: hides dishes marked non-veg or egg. Dishes with no diet mark stay
+  /// (the catalog has none on desserts, and we don't guess).
+  bool vegOnly = false;
+
+  void setVegOnly(bool v) {
+    vegOnly = v;
+    _changed();
+  }
+
+  /// True when [m] passes the VEG switch.
+  bool vegOk(MenuItem m) => !vegOnly || (m.diet != Diet.nonveg && m.diet != Diet.egg);
+
   /// Last few searches, newest first (kept on this phone).
   final List<String> recentSearches = [];
   static const _maxRecent = 8;
@@ -302,6 +314,7 @@ class AppState extends ChangeNotifier {
         'known_accounts': _knownAccounts.toList(),
         'tour_seen': tourSeen,
         'recent_searches': recentSearches,
+        'veg_only': vegOnly,
       }),
     );
     notifyListeners();
@@ -325,6 +338,7 @@ class AppState extends ChangeNotifier {
       _knownAccounts.addAll((j['known_accounts'] as List? ?? []).cast<String>());
       tourSeen = j['tour_seen'] as bool? ?? false;
       recentSearches.addAll((j['recent_searches'] as List? ?? []).cast<String>());
+      vegOnly = j['veg_only'] as bool? ?? false;
     } catch (_) {
       // A saved state from an older build: start fresh rather than crash.
     }
