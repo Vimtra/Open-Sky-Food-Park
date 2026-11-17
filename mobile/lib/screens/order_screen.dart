@@ -238,6 +238,8 @@ class _TokenCard extends StatelessWidget {
                         curve: OsMotion.move,
                         builder: (_, v, _) => FractionallySizedBox(
                           widthFactor: v,
+                          heightFactor: 1,
+                          alignment: Alignment.centerLeft,
                           child: ColoredBox(color: ready || s.status == TicketStatus.completed ? OsColors.leaf600 : OsColors.ember500),
                         ),
                       ),

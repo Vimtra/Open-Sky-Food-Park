@@ -435,7 +435,8 @@ class DemoNotice extends StatelessWidget {
     return Container(
       width: double.infinity,
       color: OsColors.ember50,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      // Sits at the very top of Home, so it starts below the status bar.
+      padding: EdgeInsets.fromLTRB(16, MediaQuery.paddingOf(context).top + 8, 16, 8),
       child: Text.rich(
         TextSpan(children: [
           WidgetSpan(

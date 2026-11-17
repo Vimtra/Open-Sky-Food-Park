@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../theme/tokens.dart';
 import '../ui/routes.dart';
 import '../ui/widgets.dart';
+import 'account_screen.dart';
 
 /// Cart and checkout in one screen, grouped by truck, as on the website.
 class CartScreen extends StatefulWidget {
@@ -173,7 +174,13 @@ class _CartScreenState extends State<CartScreen> {
                   border: Border(top: BorderSide(color: OsColors.line)),
                   boxShadow: [BoxShadow(color: Color(0x2E0E1330), blurRadius: 20, offset: Offset(0, -6), spreadRadius: -8)],
                 ),
-                child: FilledButton(
+                child: app.account == null
+                    ? FilledButton(
+                        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SignInPage())),
+                        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                        child: const Text('Sign in to place order'),
+                      )
+                    : FilledButton(
                   onPressed: _busy || app.blocked || !park.orderingEnabled ? null : () => _place(app),
                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
                   child: _busy

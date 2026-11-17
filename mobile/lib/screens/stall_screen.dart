@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../data/catalog.dart';
 import '../data/models.dart';
@@ -71,7 +72,10 @@ class _StallScreenState extends State<StallScreen> {
       _sectionKeys.putIfAbsent(cat.id, GlobalKey.new);
     }
 
-    return Scaffold(
+    // White status-bar icons over the cover photo.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
       body: Stack(
         children: [
           CustomScrollView(
@@ -206,6 +210,7 @@ class _StallScreenState extends State<StallScreen> {
           ),
           const Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(top: false, child: CartBar())),
         ],
+      ),
       ),
     );
   }

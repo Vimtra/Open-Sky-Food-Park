@@ -44,6 +44,36 @@ class AppState extends ChangeNotifier {
 
   final Map<String, int> _lines = {};
   final List<Order> _orders = [];
+
+  /// Signed-in customer (demo: kept on this phone). Null when signed out.
+  Account? account;
+
+  /// True once the welcome tour has been shown after the account was created.
+  bool tourSeen = false;
+
+  /// Last few searches, newest first (kept on this phone).
+  final List<String> recentSearches = [];
+  static const _maxRecent = 8;
+
+  void addRecentSearch(String q) {
+    final t = q.trim();
+    if (t.length < 2) return;
+    recentSearches.removeWhere((x) => x.toLowerCase() == t.toLowerCase());
+    recentSearches.insert(0, t);
+    if (recentSearches.length > _maxRecent) recentSearches.removeRange(_maxRecent, recentSearches.length);
+    _changed();
+  }
+
+  void removeRecentSearch(String q) {
+    recentSearches.remove(q);
+    _changed();
+  }
+
+  void clearRecentSearches() {
+    recentSearches.clear();
+    _changed();
+  }
+
   String customerName = '';
   Fulfilment fulfilment = Fulfilment.pickup;
   String tableNo = '';
@@ -101,6 +131,64 @@ class AppState extends ChangeNotifier {
     if (note != null) this.note = note;
     if (payment != null) paymentMethod = payment;
     if (name != null) customerName = name;
+    _changed();
+  }
+
+  // ---------------------------------------------------------------- account (demo)
+
+  /// Demo sign-in: no server, the profile lives on this phone. Returns true for a brand-new account
+  /// (the caller then shows the welcome tour).
+  bool signIn({required String name, String? phone, required SignInMethod method}) {
+    final isNew = !_knownAccounts.contains(_accountKey(name, phone, method));
+    final cleanPhone = (phone == null || phone.trim().isEmpty) ? null : phone.trim();
+    account = Account(name: name.trim(), phone: cleanPhone, method: method, createdAt: DateTime.now());
+    _knownAccounts.add(_accountKey(name, phone, method));
+    if (customerName.trim().isEmpty) customerName = account!.name;
+    if (isNew) tourSeen = false;
+    _changed();
+    return isNew;
+  }
+
+  final Set<String> _knownAccounts = {};
+  String _accountKey(String name, String? phone, SignInMethod m) => '${m.name}:${(phone ?? '').trim()}:${name.trim().toLowerCase()}';
+
+  void signOut() {
+    account = null;
+    _changed();
+  }
+
+  void updateProfile({String? name, String? phone}) {
+    final a = account;
+    if (a == null) return;
+    account = Account(
+      name: (name ?? a.name).trim(),
+      phone: phone == null ? a.phone : (phone.trim().isEmpty ? null : phone.trim()),
+      method: a.method,
+      createdAt: a.createdAt,
+    );
+    if (name != null && name.trim().isNotEmpty) customerName = name.trim();
+    _changed();
+  }
+
+  void markTourSeen() {
+    tourSeen = true;
+    _changed();
+  }
+
+  /// Settings → "Clear demo data": cart, orders, account and token counters on this phone.
+  Future<void> clearDemoData() async {
+    _lines.clear();
+    _orders.clear();
+    _knownAccounts.clear();
+    recentSearches.clear();
+    account = null;
+    tourSeen = false;
+    customerName = '';
+    tableNo = '';
+    note = '';
+    fulfilment = Fulfilment.pickup;
+    paymentMethod = PaymentMethod.payAtStall;
+    await _prefs.remove('tokens');
     _changed();
   }
 
@@ -210,6 +298,10 @@ class AppState extends ChangeNotifier {
         'note': note,
         'payment': paymentMethod.name,
         'orders': _orders.map((o) => o.toJson()).toList(),
+        'account': account?.toJson(),
+        'known_accounts': _knownAccounts.toList(),
+        'tour_seen': tourSeen,
+        'recent_searches': recentSearches,
       }),
     );
     notifyListeners();
@@ -229,6 +321,10 @@ class AppState extends ChangeNotifier {
       note = j['note'] as String? ?? '';
       paymentMethod = PaymentMethod.values.asNameMap()[j['payment']] ?? PaymentMethod.payAtStall;
       _orders.addAll((j['orders'] as List? ?? []).map((e) => Order.fromJson(e as Map<String, dynamic>)));
+      if (j['account'] is Map<String, dynamic>) account = Account.fromJson(j['account'] as Map<String, dynamic>);
+      _knownAccounts.addAll((j['known_accounts'] as List? ?? []).cast<String>());
+      tourSeen = j['tour_seen'] as bool? ?? false;
+      recentSearches.addAll((j['recent_searches'] as List? ?? []).cast<String>());
     } catch (_) {
       // A saved state from an older build: start fresh rather than crash.
     }

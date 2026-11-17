@@ -24,4 +24,4 @@ void openOrder(BuildContext context, String orderId, {bool replace = false}) {
   }
 }
 
-void openSearch(BuildContext context, {String? craving}) => _push(context, SearchScreen(initialCraving: craving, standalone: true));
+void openSearch(BuildContext context, {String? craving}) => openSearchPage(context, craving: craving);

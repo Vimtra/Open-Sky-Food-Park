@@ -1,10 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
+import 'screens/account_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/orders_screen.dart';
-import 'screens/search_screen.dart';
 import 'state/app_state.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
@@ -29,7 +29,7 @@ class OpenSkyApp extends StatelessWidget {
       );
 }
 
-/// Bottom tabs: Home, Search, Cart, Orders. Detail pages push over the tabs.
+/// Bottom tabs: Home (with the search bar), Cart, Orders, Account. Detail pages push over the tabs.
 class Shell extends StatefulWidget {
   const Shell({super.key});
 
@@ -39,34 +39,57 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _tab = 0;
+  bool _homeScrolled = false;
 
   void _go(int i) => setState(() => _tab = i);
+
+  bool _onScroll(ScrollNotification n) {
+    // Only the vertical page scroll on Home, not the sideways rails.
+    if (_tab == 0 && n.metrics.axis == Axis.vertical && n.depth == 0) {
+      final scrolled = n.metrics.pixels > 8;
+      if (scrolled != _homeScrolled) setState(() => _homeScrolled = scrolled);
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final pages = [
       const HomeScreen(),
-      const SearchScreen(),
       CartScreen(onBrowse: () => _go(0)),
       OrdersScreen(onBrowse: () => _go(0)),
+      AccountScreen(onOpenOrders: () => _go(2)),
     ];
     final live = app.orders.where((o) => o.status.name == 'active').length;
+    // Home's night hero shows through the status bar until you scroll; every other tab gets a white strip.
+    final heroUnderBar = _tab == 0 && !AppState.demo && !_homeScrolled;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // Light status-bar icons over the night hero on Home; dark ones elsewhere.
-      value: _tab == 0 ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      value: heroUnderBar ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
         body: Stack(children: [
-          IndexedStack(index: _tab, children: pages),
-          if (_tab < 2) Positioned(left: 0, right: 0, bottom: 0, child: CartBar(onTap: () => _go(2))),
+          NotificationListener<ScrollNotification>(onNotification: _onScroll, child: IndexedStack(index: _tab, children: pages)),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: MediaQuery.paddingOf(context).top,
+            child: AnimatedOpacity(
+              opacity: heroUnderBar || (_tab == 0 && !_homeScrolled) ? 0 : 1,
+              duration: OsMotion.popover,
+              child: const DecoratedBox(
+                decoration: BoxDecoration(color: OsColors.surface0, border: Border(bottom: BorderSide(color: OsColors.line))),
+              ),
+            ),
+          ),
+          if (_tab == 0) Positioned(left: 0, right: 0, bottom: 0, child: CartBar(onTap: () => _go(1))),
         ]),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tab,
           onDestinationSelected: _go,
           destinations: [
             const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-            const NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
             NavigationDestination(
               icon: Badge(isLabelVisible: app.count > 0, label: Text('${app.count}'), backgroundColor: OsColors.ember600, child: const Icon(Icons.shopping_bag_outlined)),
               selectedIcon: Badge(isLabelVisible: app.count > 0, label: Text('${app.count}'), backgroundColor: OsColors.ember600, child: const Icon(Icons.shopping_bag)),
@@ -77,6 +100,7 @@ class _ShellState extends State<Shell> {
               selectedIcon: const Icon(Icons.receipt_long),
               label: 'Orders',
             ),
+            const NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Account'),
           ],
         ),
       ),

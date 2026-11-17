@@ -131,6 +131,42 @@ class PromoBanner {
   final int sortOrder;
 }
 
+// ---------------------------------------------------------------- account
+
+/// How the customer signed in. The website offers Google (and phone when an SMS provider is set up).
+enum SignInMethod { google, phone }
+
+class Account {
+  Account({required this.name, required this.phone, required this.method, required this.createdAt});
+
+  Account.fromJson(Map<String, dynamic> j)
+      : name = j['name'] as String? ?? '',
+        phone = _str(j['phone']),
+        method = SignInMethod.values.asNameMap()[j['method']] ?? SignInMethod.phone,
+        createdAt = DateTime.tryParse(j['created_at'] as String? ?? '') ?? DateTime.now();
+
+  final String name;
+  final String? phone;
+  final SignInMethod method;
+  final DateTime createdAt;
+
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    return (parts.first[0] + (parts.length > 1 ? parts.last[0] : '')).toUpperCase();
+  }
+
+  Map<String, dynamic> toJson() => {'name': name, 'phone': phone, 'method': method.name, 'created_at': createdAt.toIso8601String()};
+
+  /// "+1 (408) 555-0100" for a 10-digit US number; otherwise as typed.
+  String? get phoneDisplay {
+    final p = phone;
+    if (p == null) return null;
+    final d = p.replaceAll(RegExp(r'\D'), '');
+    return d.length == 10 ? '+1 (${d.substring(0, 3)}) ${d.substring(3, 6)}-${d.substring(6)}' : p;
+  }
+}
+
 // ---------------------------------------------------------------- orders
 
 enum Fulfilment { pickup, table }

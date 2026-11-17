@@ -151,11 +151,13 @@ class _Hero extends StatelessWidget {
   const _Hero({required this.park});
   final Park park;
 
-  static double height(BuildContext context) => 430 + MediaQuery.paddingOf(context).top;
+  /// The demo strip above already clears the status bar; without it the hero does.
+  static double _top(BuildContext context) => AppState.demo ? 0 : MediaQuery.paddingOf(context).top;
+  static double height(BuildContext context) => 490 + _top(context);
 
   @override
   Widget build(BuildContext context) {
-    final top = MediaQuery.paddingOf(context).top;
+    final top = _top(context);
     return SizedBox(
       height: height(context),
       child: Stack(
@@ -173,10 +175,12 @@ class _Hero extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(24, top + 20, 24, 96),
+            padding: EdgeInsets.fromLTRB(16, top + 14, 16, 96),
             child: Column(
               children: [
-                Reveal(child: Image.asset('assets/brand/logo-full.png', width: 236, semanticLabel: park.name)),
+                const _SearchBar(),
+                const SizedBox(height: 18),
+                Reveal(child: Image.asset('assets/brand/logo-full.png', width: 216, semanticLabel: park.name)),
                 const SizedBox(height: 18),
                 Reveal(
                   delay: const Duration(milliseconds: 90),
@@ -198,6 +202,35 @@ class _Hero extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The search bar at the top of Home. Tapping opens search with recent searches and filters.
+class _SearchBar extends StatelessWidget {
+  const _SearchBar();
+
+  @override
+  Widget build(BuildContext context) => Pressable(
+        scale: 0.98,
+        semanticLabel: 'Search dishes and trucks',
+        onTap: () => openSearch(context),
+        child: Container(
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: OsColors.surface0,
+            borderRadius: BorderRadius.circular(OsRadius.lg),
+            boxShadow: const [BoxShadow(color: Color(0x4D070B1F), blurRadius: 24, offset: Offset(0, 10), spreadRadius: -8)],
+          ),
+          child: Row(children: [
+            const Icon(Icons.search, color: OsColors.ink700),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Search dishes and trucks', style: OsText.weight(OsText.body, 500).copyWith(color: OsColors.ink500))),
+            Container(width: 1, height: 22, color: OsColors.line),
+            const SizedBox(width: 12),
+            const Icon(Icons.tune, color: OsColors.ember700, size: 20),
+          ]),
+        ),
+      );
 }
 
 /// B's "How it works": giant ember numerals with a title and one line.
