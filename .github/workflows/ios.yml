@@ -1,0 +1,82 @@
+# Builds the Open Sky iOS app on a GitHub-hosted Mac (no Mac needed on our side),
+# the same approach as github.com/MobAI-App/ios-builder.
+#
+# Output (Actions run → Artifacts):
+#   OpenSky-ios-unsigned.ipa   iPhone build without a signature. Install with a re-signing tool
+#                              (MobAI, Sideloadly, AltStore) and a free Apple ID, or sign it later.
+#   OpenSky-ios-simulator.zip  Runner.app for the iOS Simulator (Appetize, MobAI simulator share).
+#
+# Signed builds for TestFlight and the App Store need a paid Apple Developer account;
+# see mobile/IOS.md. Owner of this file: Claude A (see COLLAB.md).
+
+name: iOS build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "!mobile/android/**"
+      - "shared/seed/**"
+      - "shared/img/**"
+      - ".github/workflows/ios.yml"
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.0 # same as the Android build machine
+          cache: true
+
+      - name: Copy the shared menu and photos into the app
+        run: node tool/sync-shared.mjs
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Build for iPhone (unsigned)
+        run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          (cd dist && zip -qry OpenSky-ios-unsigned.ipa Payload && rm -rf Payload)
+          ls -lh dist
+
+      - name: Build for the iOS Simulator
+        run: |
+          flutter build ios --simulator --debug --build-number=${{ github.run_number }}
+          (cd build/ios/iphonesimulator && zip -qry ../../../dist/OpenSky-ios-simulator.zip Runner.app)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenSky-ios-${{ github.run_number }}
+          path: mobile/dist/
+          retention-days: 14
