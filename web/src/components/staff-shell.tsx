@@ -8,6 +8,7 @@ import { friendlyError, imageSrc } from "@/lib/format";
 import { useCatalog } from "@/lib/hooks";
 import type { Session } from "@/lib/types";
 import { OpenSkyLogo } from "./brand/open-sky-logo";
+import { GoogleSignInButton } from "./sign-in";
 import { Button, Container, Field, inputClass, Notice } from "./ui";
 
 /** Header shared by the stall dashboard and the admin panel. */
@@ -99,9 +100,15 @@ export function StaffSignIn({ want }: { want: "stall_staff" | "admin" }) {
   return (
     <Container className="max-w-md py-10">
       <h1 className="text-title">{want === "admin" ? "Admin sign in" : "Stall sign in"}</h1>
-      <p className="mt-2 text-ink-700">Use the email and password the park gave you.</p>
+      <p className="mt-2 text-ink-700">Use the Google account or the email and password the park set up for you.</p>
+      <GoogleSignInButton area="staff" returnTo={want === "admin" ? "/admin" : "/partner"} className="mt-6" />
+      <div className="my-6 flex items-center gap-3 text-small font-semibold text-ink-500" role="separator">
+        <span className="h-px flex-1 bg-line" />
+        or with email and password
+        <span className="h-px flex-1 bg-line" />
+      </div>
       <form
-        className="mt-6 space-y-4"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           void run("password", () => backend().signInWithPassword(email.trim(), password));

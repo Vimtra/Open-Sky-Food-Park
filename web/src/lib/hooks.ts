@@ -110,6 +110,13 @@ export function useAllOrders(enabled = true) {
   return { orders: data, error, isLoading, reload: mutate };
 }
 
+export function useSupportRequests(enabled = true) {
+  const key = enabled ? "support:all" : null;
+  const { data, error, isLoading, mutate } = useSWR(key, () => backend().listSupportRequests(), { refreshInterval: 60_000 });
+  useLive(key, (onChange) => backend().onSupportChange(onChange));
+  return { requests: data, error, isLoading, reload: mutate };
+}
+
 /** Re-renders once a minute so "12 min ago" labels stay current. */
 export function useNow(intervalMs = 30_000) {
   const [now, setNow] = useState(() => Date.now());

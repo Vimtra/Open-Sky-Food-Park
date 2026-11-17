@@ -1,0 +1,38 @@
+name: open_sky
+description: "Open Sky Food Park: order from every truck in one cart."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.1.0
+  shared_preferences: ^2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Kept in step with ../shared by `node tool/sync-shared.mjs`.
+  assets:
+    - assets/data/
+    - assets/brand/
+    - assets/hero/
+    - assets/img/brand/
+    - assets/img/pandemkodi-dhaba/
+    - assets/img/desi-desserts/
+    - assets/img/photo/pandemkodi-dhaba/
+    - assets/img/photo/desi-desserts/
+
+  fonts:
+    # Variable font (wght 300–900); styles set the matching weight axis.
+    - family: Figtree
+      fonts:
+        - asset: assets/fonts/Figtree-Variable.ttf

@@ -10,7 +10,7 @@ import { computeBill, friendlyError, imageSrc, money, plural } from "@/lib/forma
 import { useCatalog, useSession } from "@/lib/hooks";
 import type { Fulfilment, PaymentMethod } from "@/lib/types";
 import { AddButton } from "./add-button";
-import { Button, ButtonLink, cn, Container, DietMark, EmptyState, Field, inputClass, Notice } from "./ui";
+import { Button, ButtonLink, cn, Container, DietMark, EmptyState, Field, FoodImage, inputClass, Notice } from "./ui";
 
 function Choice<T extends string>({
   name,
@@ -193,6 +193,11 @@ export function CartScreen() {
                 <ul className="divide-y divide-line px-4">
                   {lines.map(({ item, qty, orderable }) => (
                     <li key={item.id} className="flex items-center gap-3 py-3.5">
+                      <FoodImage
+                        src={imageSrc(item.image_url)}
+                        alt=""
+                        className={cn("size-14 shrink-0 rounded-md md:size-16", !orderable && "opacity-50 grayscale")}
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="flex items-start gap-1.5 text-[0.9375rem] leading-5 font-semibold">
                           <DietMark diet={item.diet} className="mt-0.5" />
@@ -281,8 +286,15 @@ export function CartScreen() {
                   aria-invalid={Boolean(nameError)}
                 />
               </Field>
-              <Field label="Mobile number" htmlFor="customer-phone" hint={session ? undefined : "Sign in to add your number."}>
-                <input id="customer-phone" value={formatPhone(session?.profile.phone)} placeholder="Not signed in" readOnly disabled className={inputClass} />
+              <Field label="Signed in as" htmlFor="customer-phone" hint={session ? undefined : "Sign in with Google or your mobile number."}>
+                <input
+                  id="customer-phone"
+                  value={formatPhone(session?.profile.phone) || session?.email || ""}
+                  placeholder="Not signed in"
+                  readOnly
+                  disabled
+                  className={inputClass}
+                />
               </Field>
             </div>
             <div className="mt-4">

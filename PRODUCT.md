@@ -69,7 +69,8 @@ Undecided (open, do not invent):
 
 - `Assets/` holds the owner's originals: the park logo, the PandemKodi Dhaba menu and five combo posters, and the Desi Desserts menu with prices.
 - Real stalls so far: **PandemKodi Dhaba** ("Dhaba Style. Desi Flavours.", +1 408 786 4343, @pandemkodi_dhaba) and **Desi Desserts**.
-- No ratings, reviews, prep times, dish descriptions or allergen information exist. Do not fabricate them; leave those fields empty.
+- No ratings, reviews, prep times or allergen information exist. Do not fabricate them; leave those fields empty.
+- One-line dish descriptions and a "Serves 4" count were added on 2026-11-17 at the owner's request (`shared/seed/descriptions.mjs`). They are drafts written from the dish names and photos, not confirmed by the trucks; the owner reviews and edits them in the admin panel. Serves is 4 for every dish until the owner sets real values.
 
 ## Product Principles
 

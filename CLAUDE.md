@@ -19,4 +19,4 @@ If the user has not said which role you are: the account that built `web/` is **
 
 ## Product facts
 
-`PRODUCT.md` is the product record (users, scope, what is undecided). `DESIGN.md` is the visual system once written. `shared/design-tokens.json` holds the colors, type and spacing both UIs must use. Do not invent prices, ratings, reviews, dish descriptions or allergen claims; leave unknown fields empty.
+`PRODUCT.md` is the product record (users, scope, what is undecided). `DESIGN.md` is the visual system once written. `shared/design-tokens.json` holds the colors, type and spacing both UIs must use. Do not invent prices, ratings, reviews or allergen claims; leave unknown fields empty. Dish descriptions are owner-requested drafts in `shared/seed/descriptions.mjs`: keep them to what the dish is, with no allergen, portion or side-dish claims.

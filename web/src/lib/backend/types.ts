@@ -10,6 +10,9 @@ import type {
   Session,
   Stall,
   StallTicket,
+  SupportRequest,
+  SupportRequestInput,
+  SupportStatus,
   TicketStatus,
 } from "../types";
 
@@ -47,6 +50,11 @@ export interface Backend {
   // sign-in
   getSession(area: Area): Promise<Session | null>;
   onSessionChange(cb: () => void): Unsubscribe;
+  /**
+   * Google sign-in. With Supabase this leaves the page for Google and comes back to
+   * `returnTo` (a same-site path) signed in; in demo mode it signs in at once.
+   */
+  signInWithGoogle(area: Area, returnTo: string): Promise<void>;
   requestOtp(phone: string): Promise<void>;
   verifyOtp(phone: string, code: string): Promise<Session>;
   signInWithPassword(email: string, password: string): Promise<Session>;
@@ -71,8 +79,15 @@ export interface Backend {
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   setStallOpen(stallId: string, open: boolean): Promise<void>;
 
+  // help & support
+  /** Sends a Contact us message. Works signed in or not. */
+  submitSupportRequest(input: SupportRequestInput): Promise<{ id: string; ref_no: string }>;
+
   // admin
   listAllOrders(): Promise<Order[]>;
+  listSupportRequests(): Promise<SupportRequest[]>;
+  setSupportRequestStatus(id: string, status: SupportStatus): Promise<void>;
+  onSupportChange(cb: () => void): Unsubscribe;
   saveStall(row: StallInput): Promise<void>;
   deleteStall(id: string): Promise<void>;
   saveCategory(row: CategoryInput): Promise<void>;

@@ -2,7 +2,7 @@
 // Schema, security rules and the rpc functions called here live in supabase/migrations.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Catalog, Order, Park, Profile, Session, StallTicket } from "../types";
+import type { Catalog, Order, Park, Profile, Session, StallTicket, SupportRequest } from "../types";
 import { slugify, type Backend, type Unsubscribe } from "./types";
 
 const STALL_SUMMARY = "id,slug,name,location_label,logo_url,phone";
@@ -25,7 +25,8 @@ const sortOrders = (orders: Order[]) => {
 
 export function createSupabaseBackend(url: string, anonKey: string): Backend {
   const db: SupabaseClient = createClient(url, anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true },
+    // PKCE: Google sends the visitor back with ?code=, which the client swaps for a session on load.
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
   });
 
   let channelSeq = 0;
@@ -109,6 +110,16 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     async verifyOtp(phone, code) {
       check(await db.auth.verifyOtp({ phone, token: code, type: "sms" }));
       return requireSession();
+    },
+
+    async signInWithGoogle(_area, returnTo) {
+      const path = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/account";
+      check(
+        await db.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: `${window.location.origin}${path}`, queryParams: { prompt: "select_account" } },
+        }),
+      );
     },
 
     async signInWithPassword(email, password) {
@@ -236,6 +247,26 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       void _id;
       check(await db.from("park_settings").update({ ...rest, updated_at: new Date().toISOString() }).eq("id", 1));
     },
+
+    // ---------------------------------------------------------------- help & support
+    async submitSupportRequest(input) {
+      return unwrap(await db.rpc("submit_support_request", { payload: input }));
+    },
+
+    async listSupportRequests() {
+      return unwrap(await db.from("support_requests").select("*").order("created_at", { ascending: false }).limit(300)) as SupportRequest[];
+    },
+
+    async setSupportRequestStatus(id, status) {
+      check(
+        await db
+          .from("support_requests")
+          .update({ status, handled_at: status === "new" ? null : new Date().toISOString() })
+          .eq("id", id),
+      );
+    },
+
+    onSupportChange: (cb) => watch(["support_requests"], cb),
 
     async resetDemo() {
       throw new Error("Nothing to reset: this is the live database.");

@@ -9,7 +9,7 @@ import { dayAndTime, isOrderLive, money, plural } from "@/lib/format";
 import { useMyOrders, useSession } from "@/lib/hooks";
 import type { Order } from "@/lib/types";
 import { StatusPill } from "./order-screen";
-import { PhoneSignIn } from "./sign-in";
+import { CustomerSignIn } from "./sign-in";
 import { Button, ButtonLink, Container, EmptyState, Field, inputClass, Notice } from "./ui";
 
 /** Only same-site paths are accepted as a post-sign-in destination. */
@@ -44,9 +44,9 @@ export function AccountScreen() {
     return (
       <Container className="max-w-md py-8 md:py-14">
         <h1 className="text-title md:text-display">Sign in</h1>
-        <p className="mt-2 text-ink-700">Use your mobile number to place orders and see your tokens on any device.</p>
+        <p className="mt-2 text-ink-700">Sign in to place orders and see your tokens on any device.</p>
         <div className="mt-6">
-          <PhoneSignIn onDone={() => next && router.replace(next)} />
+          <CustomerSignIn returnTo={next ? `/account?next=${encodeURIComponent(next)}` : "/account"} onDone={() => next && router.replace(next)} />
         </div>
       </Container>
     );
@@ -64,7 +64,7 @@ export function AccountScreen() {
   return (
     <Container className="max-w-md py-8 md:py-14">
       <h1 className="text-title md:text-display">Your account</h1>
-      <p className="mt-1 font-medium text-ink-700 tabular-nums">{formatPhone(session.profile.phone)}</p>
+      <p className="mt-1 font-medium text-ink-700 tabular-nums">{formatPhone(session.profile.phone) || session.email}</p>
 
       {next && (
         <Notice tone="success" className="mt-5">
@@ -169,7 +169,7 @@ export function OrdersScreen() {
       <EmptyState
         icon={<Receipt className="size-7" aria-hidden />}
         title="Sign in to see your orders"
-        body="Your tokens and past orders are saved to your mobile number."
+        body="Your tokens and past orders are saved to your account."
         action={<ButtonLink href="/account?next=/orders">Sign in</ButtonLink>}
       />
     );

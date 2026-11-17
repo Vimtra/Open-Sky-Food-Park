@@ -31,6 +31,12 @@ export function imageSrc(url: string | null | undefined): string | null {
   return /^https?:\/\//.test(url) ? url : `/${url.replace(/^\/+/, "")}`;
 }
 
+/** "Serves 4 | Paneer in a creamy tomato-butter gravy." Either half may be missing. */
+export function dishBlurb(item: { serves: number | null; description: string | null }): string | null {
+  const parts = [item.serves ? `Serves ${item.serves}` : null, item.description?.trim() || null].filter(Boolean);
+  return parts.length ? parts.join(" | ") : null;
+}
+
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function timeOfDay(iso: string): string {
@@ -83,6 +89,10 @@ export const isOrderLive = (o: Pick<Order, "status">) => o.status === "active" |
 
 /** Friendly text for the error codes raised by the database functions. */
 const errorText: Record<string, string> = {
+  contact_required: "Add an email or phone number so we can reply.",
+  message_too_short: "Tell us a little more so we can help.",
+  message_too_long: "That message is too long. Keep it under 2,000 characters.",
+  too_many_messages: "You have sent several messages in the last hour. We will reply to those first.",
   sign_in_required: "Please sign in to place your order.",
   ordering_closed: "The park is not taking orders right now.",
   name_required: "Add your name so the stall knows whose order it is.",

@@ -12,15 +12,17 @@ import type {
   Session,
   StallOrder,
   StallTicket,
+  SupportRequest,
   TicketStatus,
 } from "../types";
 import { slugify, type Area, type Backend, type Unsubscribe } from "./types";
 
-type Topic = "catalog" | "orders" | "session";
+type Topic = "catalog" | "orders" | "session" | "support";
 
 const K = {
   catalog: "osfp.demo.catalog",
   orders: "osfp.demo.orders",
+  support: "osfp.demo.support",
   session: (area: Area) => `osfp.demo.session.${area}`,
 };
 
@@ -50,7 +52,7 @@ const fail = (code: string): never => {
 };
 
 export function createDemoBackend(): Backend {
-  const listeners: Record<Topic, Set<() => void>> = { catalog: new Set(), orders: new Set(), session: new Set() };
+  const listeners: Record<Topic, Set<() => void>> = { catalog: new Set(), orders: new Set(), session: new Set(), support: new Set() };
   const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("osfp-demo") : null;
 
   const emitLocal = (topic: Topic) => listeners[topic].forEach((cb) => cb());
@@ -147,6 +149,16 @@ export function createDemoBackend(): Backend {
       });
       saveSession("customer", session);
       return session;
+    },
+
+    async signInWithGoogle(area) {
+      await sleep(400);
+      // Stands in for a Google account; nothing leaves the browser.
+      const session: Session = {
+        ...makeSession({ id: "demo-google-guest", phone: null, full_name: "Demo Guest", role: "customer" }),
+        email: "demo.guest@gmail.com",
+      };
+      saveSession(area, session);
     },
 
     async signInWithPassword() {
@@ -480,6 +492,7 @@ export function createDemoBackend(): Backend {
             craving: null,
             is_available: true,
             is_featured: false,
+            serves: null,
             sort_order: c.menu_items.filter((m) => m.category_id === row.category_id).length + 1,
             ...row,
           });
@@ -528,11 +541,64 @@ export function createDemoBackend(): Backend {
       });
     },
 
+    // ---------------------------------------------------------------- help & support
+    async submitSupportRequest(input) {
+      await sleep(400);
+      const name = input.name.trim();
+      const contact = input.contact.trim();
+      const message = input.message.trim();
+      if (!name) fail("name_required");
+      if (contact.length < 3) fail("contact_required");
+      if (message.length < 5) fail("message_too_short");
+      if (message.length > 2000) fail("message_too_long");
+      const all = read<SupportRequest[]>(K.support, []);
+      const hourAgo = Date.now() - 60 * 60 * 1000;
+      if (all.filter((r) => r.contact.toLowerCase() === contact.toLowerCase() && new Date(r.created_at).getTime() > hourAgo).length >= 5)
+        fail("too_many_messages");
+      const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+      const row: SupportRequest = {
+        id: uid(),
+        ref_no: `HS-${Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("")}`,
+        customer_id: loadSession("customer")?.user_id ?? null,
+        name: name.slice(0, 80),
+        contact: contact.slice(0, 120),
+        topic: input.topic,
+        order_no: input.order_no?.trim().toUpperCase().slice(0, 20) || null,
+        message,
+        status: "new",
+        created_at: now(),
+        handled_at: null,
+      };
+      write(K.support, [row, ...all]);
+      emit("support");
+      return { id: row.id, ref_no: row.ref_no };
+    },
+
+    async listSupportRequests() {
+      await sleep();
+      requireAdmin();
+      return read<SupportRequest[]>(K.support, []);
+    },
+
+    async setSupportRequestStatus(id, status) {
+      requireAdmin();
+      const all = read<SupportRequest[]>(K.support, []);
+      const row = all.find((r) => r.id === id) ?? fail("not_found");
+      row.status = status;
+      row.handled_at = status === "new" ? null : now();
+      write(K.support, all);
+      emit("support");
+    },
+
+    onSupportChange: (cb) => subscribe("support", cb),
+
     async resetDemo() {
       localStorage.removeItem(K.catalog);
       localStorage.removeItem(K.orders);
+      localStorage.removeItem(K.support);
       emit("catalog");
       emit("orders");
+      emit("support");
     },
   };
 }

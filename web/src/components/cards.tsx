@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { imageSrc, money } from "@/lib/format";
+import { ArrowRight } from "lucide-react";
+import { dishBlurb, imageSrc, money } from "@/lib/format";
 import type { MenuItem, Stall } from "@/lib/types";
 import { AddButton } from "./add-button";
-import { cn, DietMark, FoodImage } from "./ui";
+import { buttonClass, cn, DietMark, FoodImage } from "./ui";
+
+/** The dish page: /stall/<stall slug>/<dish slug>. Item ids are "<stall>.<dish slug>". */
+export function dishHref(stall: Pick<Stall, "slug">, item: Pick<MenuItem, "id">) {
+  const dot = item.id.indexOf(".");
+  return `/stall/${stall.slug}/${dot >= 0 ? item.id.slice(dot + 1) : item.id}`;
+}
 
 export function OpenStatus({ stall, className }: { stall: Pick<Stall, "is_open">; className?: string }) {
   return (
@@ -12,6 +19,40 @@ export function OpenStatus({ stall, className }: { stall: Pick<Stall, "is_open">
       <span className={cn("size-2 rounded-full", stall.is_open ? "bg-leaf-600" : "bg-ink-300")} aria-hidden />
       {stall.is_open ? "Open now" : "Closed"}
     </span>
+  );
+}
+
+/** Wide truck card (home hero, search landing): what it serves on the left, its cover photo on the right. The whole card is one link. */
+export function TruckCard({ stall, itemCount, as: Heading = "h2" }: { stall: Stall; itemCount: number; as?: "h2" | "h3" }) {
+  const href = `/stall/${stall.slug}`;
+  return (
+    <article className="group relative grid grid-cols-[1fr_42%] overflow-hidden rounded-xl border border-line bg-surface-0 shadow-[0_18px_40px_-18px_oklch(19.6%_0.06_270.1/0.45)]">
+      <div className="flex min-w-0 flex-col p-4 md:p-6">
+        <Heading className="text-heading md:text-title">
+          <Link href={href} className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
+            {stall.name}
+          </Link>
+        </Heading>
+        <p className="mt-1 line-clamp-2 text-label font-medium text-ink-500 md:text-body">{stall.tagline ?? stall.cuisines.join(", ")}</p>
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 text-small text-ink-700">
+          <OpenStatus stall={stall} />
+          <span aria-hidden>·</span>
+          <span>{itemCount} dishes</span>
+        </p>
+        <div className="mt-auto pt-4">
+          {/* Looks like a button but sits inside the card's link, so it stays a span. */}
+          <span className={buttonClass("primary", "sm", "group-hover:bg-ember-400")}>
+            View menu
+            <ArrowRight className="size-4 transition-transform duration-200 ease-enter group-hover:translate-x-0.5" aria-hidden />
+          </span>
+        </div>
+      </div>
+      <FoodImage
+        src={imageSrc(stall.cover_url)}
+        alt=""
+        className={cn("h-full min-h-40 w-full transition-transform duration-300 ease-enter group-hover:scale-[1.04] md:min-h-52", !stall.is_open && "opacity-60 grayscale")}
+      />
+    </article>
   );
 }
 
@@ -60,7 +101,7 @@ export function DishCard({ item, stall, showStall = false, className }: { item: 
   return (
     <article className={cn("flex w-40 flex-col md:w-44", className)}>
       <div className="relative">
-        <Link href={`/stall/${stall.slug}#${item.id}`} className="block overflow-hidden rounded-lg" tabIndex={-1} aria-hidden>
+        <Link href={dishHref(stall, item)} className="block overflow-hidden rounded-lg" tabIndex={-1} aria-hidden>
           <FoodImage src={imageSrc(item.image_url)} alt="" className={cn("aspect-square w-full", !item.is_available && "opacity-50 grayscale")} />
         </Link>
         <AddButton item={item} stallOpen={stall.is_open} className="absolute right-2 -bottom-3" />
@@ -68,7 +109,7 @@ export function DishCard({ item, stall, showStall = false, className }: { item: 
       <div className="mt-5 flex items-start gap-1.5">
         <DietMark diet={item.diet} className="mt-0.5" />
         <h3 className="line-clamp-2 text-label leading-[1.2rem] font-bold text-ink-900">
-          <Link href={`/stall/${stall.slug}#${item.id}`} className="hover:underline">
+          <Link href={dishHref(stall, item)} className="hover:underline">
             {item.name}
           </Link>
         </h3>
@@ -92,13 +133,19 @@ export function MenuItemRow({ item, stall, highlighted }: { item: MenuItem; stal
     >
       <div className={cn("min-w-0 flex-1", !item.is_available && "opacity-60")}>
         <DietMark diet={item.diet} />
-        <h4 className="mt-1 text-[1.0625rem] leading-6 font-bold text-ink-900">{item.name}</h4>
+        <h4 className="mt-1 text-[1.0625rem] leading-6 font-bold text-ink-900">
+          <Link href={dishHref(stall, item)} className="hover:underline">
+            {item.name}
+          </Link>
+        </h4>
         <p className="mt-0.5 text-[0.9375rem] font-semibold text-ink-900 tabular-nums">{money(item.price_cents)}</p>
-        {item.description && <p className="mt-2 max-w-prose text-label font-normal text-ink-500">{item.description}</p>}
+        {dishBlurb(item) && <p className="mt-2 line-clamp-2 max-w-prose text-label font-normal text-ink-500">{dishBlurb(item)}</p>}
       </div>
       {src ? (
         <div className="relative shrink-0 pb-3">
-          <FoodImage src={src} alt={item.name} className={cn("size-28 rounded-lg md:h-32 md:w-36", !item.is_available && "opacity-50 grayscale")} />
+          <Link href={dishHref(stall, item)} tabIndex={-1} aria-hidden className="block">
+            <FoodImage src={src} alt="" className={cn("size-28 rounded-lg md:h-32 md:w-36", !item.is_available && "opacity-50 grayscale")} />
+          </Link>
           <AddButton item={item} stallOpen={stall.is_open} className="absolute bottom-0 left-1/2 -translate-x-1/2" />
         </div>
       ) : (

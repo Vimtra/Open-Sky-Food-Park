@@ -197,10 +197,12 @@ function headline(order: Order): string {
   if (order.status === "completed") return "Order complete";
   const live = order.stall_orders.filter((s) => s.status !== "cancelled" && s.status !== "completed");
   const ready = live.filter((s) => s.status === "ready");
+  // Two stalls can both issue token 1, so name the stall alongside the number.
+  const tokenReady = (s: StallOrder) => `Token ${s.token_no} is ready${s.stall?.name ? ` at ${s.stall.name}` : ""}`;
   if (ready.length && ready.length === live.length) {
-    return order.fulfilment === "table" ? "On its way to your table" : ready.length === 1 ? `Token ${ready[0].token_no} is ready` : "Everything is ready";
+    return order.fulfilment === "table" ? "On its way to your table" : ready.length === 1 ? tokenReady(ready[0]) : "Everything is ready";
   }
-  if (ready.length) return order.fulfilment === "table" ? "First dishes are on their way" : `Token ${ready[0].token_no} is ready`;
+  if (ready.length) return order.fulfilment === "table" ? "First dishes are on their way" : tokenReady(ready[0]);
   if (live.some((s) => s.status === "preparing")) return "Your order is being prepared";
   return "Order sent to the stalls";
 }

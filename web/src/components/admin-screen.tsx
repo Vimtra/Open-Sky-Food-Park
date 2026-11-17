@@ -4,16 +4,18 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { backend, isDemo } from "@/lib/backend";
 import { dayAndTime, friendlyError, imageSrc, isOrderLive, money, plural } from "@/lib/format";
-import { useAllOrders, useCatalog, type CatalogIndex } from "@/lib/hooks";
+import { useAllOrders, useCatalog, useSupportRequests, type CatalogIndex } from "@/lib/hooks";
 import { useSession } from "@/lib/hooks";
-import type { Banner, Diet, MenuCategory, MenuItem, Park, Stall } from "@/lib/types";
+import type { Banner, Diet, MenuCategory, MenuItem, Park, Stall, SupportStatus } from "@/lib/types";
+import { supportTopics } from "./support-shared";
 import { StatusPill } from "./order-screen";
 import { StaffHeader, StaffSignIn } from "./staff-shell";
-import { Button, cn, Container, DietMark, Field, inputClass, Notice, Spinner, Switch } from "./ui";
+import { Button, Chip, cn, Container, DietMark, Field, inputClass, Notice, Spinner, Switch } from "./ui";
 
-type Tab = "orders" | "menu" | "stalls" | "promos" | "settings";
+type Tab = "orders" | "messages" | "menu" | "stalls" | "promos" | "settings";
 const tabs: [Tab, string][] = [
   ["orders", "Orders"],
+  ["messages", "Messages"],
   ["menu", "Menus"],
   ["stalls", "Stalls"],
   ["promos", "Promos"],
@@ -157,16 +159,19 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
   const [price, setPrice] = useState(item ? toDollars(item.price_cents) : "");
   const [diet, setDiet] = useState<string>(item?.diet ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
+  const [serves, setServes] = useState(item?.serves ? String(item.serves) : "");
   const [image, setImage] = useState(item?.image_url ?? "");
   const [craving, setCraving] = useState(item?.craving ?? "");
   const [available, setAvailable] = useState(item?.is_available ?? true);
   const [featured, setFeatured] = useState(item?.is_featured ?? false);
   const [touched, setTouched] = useState(false);
   const cents = toCents(price);
+  const servesNum = serves.trim() ? Number(serves) : null;
+  const servesOk = servesNum === null || (Number.isInteger(servesNum) && servesNum >= 1 && servesNum <= 50);
 
   const save = async () => {
     setTouched(true);
-    if (!name.trim() || cents === null) return;
+    if (!name.trim() || cents === null || !servesOk) return;
     const ok = await run(() =>
       backend().saveItem({
         ...(item ? { id: item.id } : {}),
@@ -176,6 +181,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
         price_cents: cents,
         diet: (diet || null) as Diet | null,
         description: blankToNull(description),
+        serves: servesNum,
         image_url: blankToNull(image),
         craving: craving || null,
         is_available: available,
@@ -197,8 +203,19 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
           <option value="nonveg">Non-veg</option>
         </Select>
       </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_9rem]">
+        <Text label="One-line description" value={description} onChange={setDescription} maxLength={140} hint="Shown under the price, e.g. “Paneer in a creamy tomato-butter gravy.”" />
+        <Text
+          label="Serves"
+          value={serves}
+          onChange={setServes}
+          inputMode="numeric"
+          placeholder="e.g. 4"
+          hint="People. Empty hides it."
+          error={touched && !servesOk ? "Whole number, 1 to 50." : null}
+        />
+      </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Text label="Description (optional)" value={description} onChange={setDescription} />
         <Select label="Shows under craving" value={craving} onChange={setCraving}>
           <option value="">None</option>
           {index.catalog.cravings.map((c) => (
@@ -569,6 +586,99 @@ function PromosTab({ index, run }: { index: CatalogIndex; run: Run }) {
   );
 }
 
+// ------------------------------------------------------------------ messages
+const statusLabel: Record<SupportStatus, string> = { new: "New", in_progress: "In progress", closed: "Closed" };
+const statusClass: Record<SupportStatus, string> = {
+  new: "bg-ember-100 text-ember-700",
+  in_progress: "bg-surface-2 text-ink-700",
+  closed: "bg-leaf-50 text-leaf-700",
+};
+
+function contactHref(contact: string) {
+  if (/@/.test(contact)) return `mailto:${contact}`;
+  const digits = contact.replace(/[^\d+]/g, "");
+  return digits.length >= 8 ? `tel:${digits}` : null;
+}
+
+function MessagesTab({ run }: { run: Run }) {
+  const { requests, error } = useSupportRequests();
+  const [filter, setFilter] = useState<"open" | "all">("open");
+  if (error && !requests) return <Notice tone="error">Could not load messages.</Notice>;
+  if (!requests) return <Spinner />;
+
+  const open = requests.filter((r) => r.status !== "closed");
+  const shown = filter === "open" ? open : requests;
+  const topicLabel = new Map(supportTopics.map((t) => [t.value, t.label]));
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-ink-700">
+          Messages sent from <strong className="text-ink-900">Contact us</strong>. {open.length === 0 ? "Nothing waiting." : `${plural(open.length, "message")} waiting.`}
+        </p>
+        <div className="flex gap-2" role="group" aria-label="Show">
+          <Chip selected={filter === "open"} onClick={() => setFilter("open")}>
+            Open
+          </Chip>
+          <Chip selected={filter === "all"} onClick={() => setFilter("all")}>
+            All
+          </Chip>
+        </div>
+      </div>
+
+      {shown.length === 0 ? (
+        <p className="mt-8 text-ink-500">{filter === "open" ? "No open messages." : "No messages yet. They show up here when someone uses the Contact us page."}</p>
+      ) : (
+        <ul className="mt-5 space-y-3">
+          {shown.map((r) => {
+            const href = contactHref(r.contact);
+            return (
+              <li key={r.id} className={cn("rounded-xl border border-line p-4 md:p-5", r.status === "closed" && "bg-surface-1")}>
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2">
+                      <span className="font-extrabold">{r.name}</span>
+                      <span className={cn("inline-flex h-6 items-center rounded-full px-2.5 text-caption font-bold", statusClass[r.status])}>{statusLabel[r.status]}</span>
+                    </p>
+                    <p className="mt-0.5 text-small text-ink-500">
+                      <span className="tabular-nums">{r.ref_no}</span> · {dayAndTime(r.created_at)} · {topicLabel.get(r.topic) ?? r.topic}
+                      {r.order_no && <span className="tabular-nums"> · {r.order_no}</span>}
+                    </p>
+                  </div>
+                  {href ? (
+                    <a href={href} className="text-label font-bold text-ember-700 hover:underline">
+                      {r.contact}
+                    </a>
+                  ) : (
+                    <span className="text-label font-bold">{r.contact}</span>
+                  )}
+                </div>
+                <p className="mt-3 max-w-prose whitespace-pre-line text-ink-900">{r.message}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {r.status === "new" && (
+                    <Button size="sm" variant="outline" onClick={() => void run(() => backend().setSupportRequestStatus(r.id, "in_progress"))}>
+                      Mark in progress
+                    </Button>
+                  )}
+                  {r.status !== "closed" ? (
+                    <Button size="sm" variant="dark" onClick={() => void run(() => backend().setSupportRequestStatus(r.id, "closed"))}>
+                      Close
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" onClick={() => void run(() => backend().setSupportRequestStatus(r.id, "new"))}>
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
 // ------------------------------------------------------------------ settings
 function SettingsTab({ park, run }: { park: Park; run: Run }) {
   const [name, setName] = useState(park.name);
@@ -576,6 +686,9 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
   const [tax, setTax] = useState(String(park.tax_percent));
   const [fee, setFee] = useState(toDollars(park.service_fee_cents));
   const [announcement, setAnnouncement] = useState(park.announcement ?? "");
+  const [contactEmail, setContactEmail] = useState(park.contact_email ?? "");
+  const [contactPhone, setContactPhone] = useState(park.contact_phone ?? "");
+  const [hours, setHours] = useState(park.hours_text ?? "");
   const [ordering, setOrdering] = useState(park.ordering_enabled);
   const [tables, setTables] = useState(park.table_service_enabled);
   const [touched, setTouched] = useState(false);
@@ -594,6 +707,9 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
           tax_percent: taxNum,
           service_fee_cents: feeCents,
           announcement: blankToNull(announcement),
+          contact_email: blankToNull(contactEmail),
+          contact_phone: blankToNull(contactPhone),
+          hours_text: blankToNull(hours),
           ordering_enabled: ordering,
           table_service_enabled: tables,
         }),
@@ -624,6 +740,13 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
       </div>
       <div className="mt-4">
         <Text label="Announcement on the home page (optional)" value={announcement} onChange={setAnnouncement} placeholder="e.g. Movie night starts at 8 PM" />
+      </div>
+      <h3 className="mt-8 text-subheading font-extrabold">Contact details</h3>
+      <p className="mt-1 text-label font-medium text-ink-700">Shown on Contact us and Help &amp; Support only when filled in. Leave a field empty to hide it.</p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Text label="Park email" value={contactEmail} onChange={setContactEmail} type="email" placeholder="hello@…" />
+        <Text label="Park phone" value={contactPhone} onChange={setContactPhone} type="tel" />
+        <Text label="Opening hours" value={hours} onChange={setHours} placeholder="e.g. Thu–Sun, 5–11 PM" hint="Free text, shown as written." />
       </div>
       <div className="mt-3">
         <Check label="Take online orders" checked={ordering} onChange={setOrdering} />
@@ -718,6 +841,7 @@ export function AdminScreen() {
           )}
           <div className="py-6">
             {tab === "orders" && <OrdersTab />}
+            {tab === "messages" && <MessagesTab run={run} />}
             {tab === "menu" && <MenuTab index={index} run={run} />}
             {tab === "stalls" && <StallsTab index={index} run={run} />}
             {tab === "promos" && <PromosTab index={index} run={run} />}

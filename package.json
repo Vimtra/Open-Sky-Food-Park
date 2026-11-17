@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "seed:images": "python shared/seed/crop_images.py",
-    "seed:build": "node shared/seed/build.mjs",
-    "db:test": "node supabase/tests/smoke.mjs"
+    "seed:build": "node shared/seed/build.mjs && node supabase/bundle.mjs",
+    "db:test": "node supabase/tests/smoke.mjs",
+    "db:bundle": "node supabase/bundle.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.0"

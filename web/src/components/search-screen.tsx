@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { imageSrc } from "@/lib/format";
 import { useCatalog } from "@/lib/hooks";
 import type { MenuItem, Stall } from "@/lib/types";
-import { DishCard, OpenStatus } from "./cards";
+import { DishCard, OpenStatus, TruckCard } from "./cards";
 import { Chip, Container, Notice } from "./ui";
 
 export function SearchScreen() {
@@ -58,8 +58,8 @@ export function SearchScreen() {
 
   return (
     <Container className="py-5 md:py-8">
-      <h1 className="sr-only">Search</h1>
-      <div className="relative mx-auto max-w-2xl">
+      <h1 className="mx-auto max-w-2xl text-title md:text-center md:text-[2.5rem] md:leading-[2.875rem] md:tracking-[-0.03em]">What are you craving?</h1>
+      <div className="relative mx-auto mt-4 max-w-2xl md:mt-6">
         <Search className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-500" aria-hidden />
         <input
           type="search"
@@ -89,7 +89,7 @@ export function SearchScreen() {
       </div>
 
       {cravings.length > 0 && (
-        <div className="no-scrollbar -mx-4 mt-4 flex gap-2 overflow-x-auto px-4 md:mx-auto md:max-w-2xl md:flex-wrap md:px-0">
+        <div className="no-scrollbar -mx-4 mt-4 flex gap-2 overflow-x-auto px-4 md:mx-auto md:max-w-2xl md:flex-wrap md:justify-center md:px-0">
           {cravings.map((c) => (
             <Chip key={c.slug} selected={c.slug === craving} onClick={() => setUrl({ craving: c.slug === craving ? null : c.slug })}>
               {c.name}
@@ -106,16 +106,16 @@ export function SearchScreen() {
 
       <div className="mt-8" aria-live="polite">
         {!results && index && (
-          <div className="mx-auto max-w-2xl">
-            <h2 className="text-heading">Browse by stall</h2>
-            <ul className="mt-2 divide-y divide-line">
+          <section aria-labelledby="browse-heading">
+            <h2 id="browse-heading" className="text-heading md:text-title">
+              Browse by truck
+            </h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2 md:gap-6">
               {index.stalls.map((stall) => (
-                <li key={stall.id}>
-                  <StallLink stall={stall} />
-                </li>
+                <TruckCard key={stall.id} stall={stall} itemCount={index.itemsByStall.get(stall.id)?.length ?? 0} as="h3" />
               ))}
-            </ul>
-          </div>
+            </div>
+          </section>
         )}
 
         {results && results.length === 0 && (

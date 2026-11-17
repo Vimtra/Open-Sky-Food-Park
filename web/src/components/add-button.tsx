@@ -10,15 +10,20 @@ interface Props {
   /** False when the item's stall is closed. */
   stallOpen: boolean;
   className?: string;
+  /** "lg" is the big button on the dish page. */
+  size?: "md" | "lg";
 }
 
 /** The ADD button that turns into a − qty + stepper once the item is in the cart. */
-export function AddButton({ item, stallOpen, className }: Props) {
+export function AddButton({ item, stallOpen, className, size = "md" }: Props) {
   const qty = useCart((s) => (s.hydrated ? (s.lines[item.id] ?? 0) : 0));
   const add = useCart((s) => s.add);
   const decrement = useCart((s) => s.decrement);
 
-  const frame = "h-9 w-24 rounded-md border border-line bg-white shadow-md text-label font-extrabold tabular-nums";
+  const frame = cn(
+    "rounded-md border border-line bg-white shadow-md font-extrabold tabular-nums",
+    size === "lg" ? "h-12 w-44 text-body [&_button]:w-12" : "h-9 w-24 text-label",
+  );
 
   if (!item.is_available || !stallOpen) {
     return (

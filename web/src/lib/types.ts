@@ -23,6 +23,11 @@ export interface Park {
   ordering_enabled: boolean;
   table_service_enabled: boolean;
   announcement: string | null;
+  /** Park contact details. Shown on /contact and /help only when set. */
+  contact_email: string | null;
+  contact_phone: string | null;
+  /** Free text, e.g. "Thu–Sun, 5–11 PM". */
+  hours_text: string | null;
 }
 
 export interface Stall {
@@ -62,6 +67,8 @@ export interface MenuItem {
   craving: string | null;
   is_available: boolean;
   is_featured: boolean;
+  /** How many people the dish serves. Null hides it. */
+  serves: number | null;
   sort_order: number;
 }
 
@@ -184,4 +191,30 @@ export interface PlaceOrderResult {
   order_id: string;
   order_no: string;
   total_cents: number;
+}
+
+export type SupportTopic = "order" | "feedback" | "lost_found" | "vendor" | "other";
+export type SupportStatus = "new" | "in_progress" | "closed";
+
+export interface SupportRequest {
+  id: string;
+  ref_no: string;
+  customer_id: string | null;
+  name: string;
+  /** Email or phone number, as typed. */
+  contact: string;
+  topic: SupportTopic;
+  order_no: string | null;
+  message: string;
+  status: SupportStatus;
+  created_at: string;
+  handled_at: string | null;
+}
+
+export interface SupportRequestInput {
+  name: string;
+  contact: string;
+  topic: SupportTopic;
+  order_no: string | null;
+  message: string;
 }

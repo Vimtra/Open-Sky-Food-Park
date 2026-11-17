@@ -7,6 +7,7 @@
 // prints only one price (Fresh Live Pulka, $1.99) and the Desi Desserts menu prints
 // none for Chocolate Chip Brownie. Replace those before going live.
 
+import { DEFAULT_SERVES, descriptions } from "./descriptions.mjs";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,11 @@ const park = {
   ordering_enabled: true,
   table_service_enabled: true,
   announcement: null,
+  // Contact details the owner has not given yet. Fill them in the admin panel (Settings);
+  // /contact and /help show them only when set.
+  contact_email: null,
+  contact_phone: null,
+  hours_text: null,
 };
 
 // ---------------------------------------------------------------- cravings
@@ -257,7 +263,8 @@ stallSources.forEach((s, si) => {
         stall_id: s.slug,
         category_id,
         name,
-        description: opt.desc ?? null,
+        description: descriptions[id] ?? opt.desc ?? null,
+        serves: DEFAULT_SERVES,
         price_cents: cents(price),
         diet,
         image_url: photo(s.slug, slugify(name)) ?? opt.img ?? null,
@@ -303,6 +310,11 @@ const catalog = {
   menu_items,
   placeholder_price_item_ids,
 };
+
+const undescribed = menu_items.filter((m) => !m.description).map((m) => m.id);
+if (undescribed.length) console.warn(`no description for: ${undescribed.join(", ")}`);
+const stale = Object.keys(descriptions).filter((id) => !menu_items.some((m) => m.id === id));
+if (stale.length) throw new Error(`descriptions.mjs has ids that are not on any menu: ${stale.join(", ")}`);
 
 // ---------------------------------------------------------------- write JSON
 const jsonPath = resolve(root, "shared/seed/catalog.json");

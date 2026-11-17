@@ -94,7 +94,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | A5 | Web stall dashboard | A | done | `/partner`: new / preparing / ready lanes, reject, sold-out switches, open/closed |
 | A6 | Web admin panel | A | done | `/admin`: orders, menus and prices, stalls, promos, settings. Not built yet: image upload (URL field only), assigning staff to stalls (done in SQL, see `web/README.md`) |
 | A7 | Stripe payment routes + webhook | A | blocked | code written (`web/src/app/api/payments/`), never run: needs Stripe test keys and a Supabase project from the owner |
-| A8 | `DESIGN.md` from the built web UI | B | todo | handed to B, who is redesigning the customer screens and offered to write it from the result |
+| A8 | `DESIGN.md` from the built web UI | B | done | customer screens covered; staff screens (partner, admin) not yet described |
 | A9 | Run migration + seed on a real Supabase project, test web against it | A | blocked | needs the owner's Supabase project |
 | B1 | Install Flutter, create `mobile/` project (Android + iOS), wire tokens into `ThemeData` | B | todo | Flutter is not installed on this PC yet; Android SDK and Android Studio are |
 | B2 | Data layer: models for the contract tables, demo repository on `catalog.json`, Supabase repository | B | todo | |
@@ -275,3 +275,102 @@ Back after a gap; read everything above. Thanks for logging each change. Where t
 - Small fixes I made in files you had edited but released (staff screens): `staff-shell.tsx` sign-out button has an `aria-label`; `admin-screen.tsx` shows a confirmation after saving settings (it was being wiped by the form refresh); `partner-screen.tsx` shows the amount with tax.
 - Testing tip: the app's built-in browser pane is often hidden, and React only reveals streamed content on an animation frame. A page opened by **direct URL** to `/stall/…`, `/orders/…`, `/search` or `/account` then sits on its skeleton forever. Open `/` and click through instead (client-side navigation is fine), or bring the pane to the front.
 - Next for me once the owner supplies a Supabase project and Stripe test keys: A9 and A7. Until then I am free for anything you want moved to my side.
+
+### 2026-11-17 · B · STATUS (home redesign, owner's picks; photos placed)
+
+- **Owner's direction:** keep the **light theme** (no navy page grounds). From the three Flow mockups the owner picked **mockup C's hero** and **mockup B's "How it works"**; nothing else from them.
+- `home-screen.tsx`: centred hero on the night park photo (big animated logo, "Every truck. One cart.", line, orange "Start your order" → `#trucks`). The two trucks are wide white cards overlapping the bottom of the hero (name, tagline or cuisines, open status, dish count, "View menu"), replacing the old "Food trucks at Open Sky" grid. The hero fact pills and the phone search link are gone (search stays in the header and bottom nav). New "How it works" row after the cravings: three steps with large ember numerals that reveal on scroll; table-service wording only when `park.table_service_enabled`.
+- `globals.css`: `hero-scrim` reworked for centred text; new `step-num` and `reveal-item` utilities (reduced motion shows them at once). `hero-pill` is no longer used on the home page.
+- **Photos:** 5 pulka-combo photos, both stall covers (3:2) and the brownie are in `shared/img/photo/`; catalog rebuilt and synced. 53/54 dishes on photos (Apricot Delight still on its crop; a reshoot is queued).
+- `tsc` and `eslint` clean; checked at 1440px and 390px (no horizontal scroll).
+
+### 2026-11-17 · B · DONE (new look carried to stall, search, cart, order) + your two fixes
+
+- `cards.tsx`: new shared `TruckCard` (moved out of `home-screen.tsx`), used on the home hero and the search landing.
+- `stall-screen.tsx`: photo hero from the stall's `cover_url` with logo, name, tagline and cuisines over a navy fade; skeleton matches. **Your fix 2:** the tab title is now "<stall name> · Open Sky Food Park" once the catalog loads.
+- `search-screen.tsx`: visible heading "What are you craving?", centred search and craving chips on desktop; the empty state shows the two truck cards ("Browse by truck") instead of a plain list.
+- `cart-screen.tsx`: each line shows the dish photo (greyed when it can't be ordered).
+- `order-screen.tsx` **your fix 1:** "Token 1 is ready at PandemKodi Dhaba" (uses `stall_order.stall.name` when present).
+- `tsc` and `eslint` clean; checked stall (desktop and phone), search, and the cart with a test cart in demo mode.
+- **Photos complete:** Apricot Delight reshoot placed; all 54/54 dishes now use photoshoot images. Catalog rebuilt and synced.
+
+### 2026-11-17 · B · DONE (home videos)
+
+- `web/public/video/`: four Flow clips, cropped to remove the generator's corner mark and compressed with the ffmpeg bundled in Python's `imageio_ffmpeg` (22 MB → 4.6 MB). `park-night.mp4` (1280×720, plays forward then reversed so the loop has no seam), `pulka.mp4`, `curry.mp4`, `falooda.mp4` (720×900 portrait), each with a `-poster.jpg`.
+- New `components/home/scroll-video.tsx`: `ScrollVideo` plays a muted loop only while ≥25% on screen, pauses off screen, starts downloading about one screen away (`eager` for the hero), fades in over its still once frames play, and renders nothing under reduced motion (the still stays). Also exports `useReducedMotion()`.
+- `home-screen.tsx`: the hero photo now comes alive with the park clip; new "Fresh off the trucks" row after "How it works" with three tiles tied to real items (Fresh Live Pulka, Dhaba Chicken Curry, Royal Falooda): name, truck, price and Add button over the clip. Swipeable on phones, three columns on desktop.
+- `tsc` and `eslint` clean; checked in the browser that the hero pauses when scrolled away and the visible tiles play.
+
+### 2026-11-17 · B · DONE (A8: DESIGN.md)
+
+- `DESIGN.md` at the repo root, in the DESIGN.md format: YAML tokens (hex, matching `shared/design-tokens.json`; prose notes the OKLCH the web uses), then Overview, Colors, Typography, Layout, Elevation, Shapes, Components, Motion, Do's and Don'ts.
+- Records the owner's decisions: light pages with navy only in header, footer and photo heroes; ember buttons carry navy text; no invented content; the new logo only.
+- Documents the signature pieces (truck card, dish reel, photo heroes, How it works) and the motion rules (curves, durations, scroll reveal, video playback, reduced motion).
+- **Not covered yet:** the staff screens (`/partner`, `/admin`). They follow the same tokens; if you want a section for them, add it or ask me.
+- No `.impeccable/design.json` sidecar was written; DESIGN.md alone is the reference.
+
+### 2026-11-17 · B · DONE (dish page + recommendations, owner's request)
+
+- New route `web/src/app/(customer)/stall/[slug]/[dish]/page.tsx` → `components/dish-screen.tsx`. URL is `/stall/<stall slug>/<dish slug>` (the item id after the dot). Shows breadcrumb, dish name, large photo, diet and menu section, price, description only if the catalog has one, truck link and open status, a large Add button, a short "made at / collect with your token" timeline and the allergen note. No ratings or other invented fields.
+- Recommendations below: "More <section>" (same category), "More from <truck>" (featured first), and one "Also at the park: <other truck>" rail per other truck. Only available items with photos.
+- All dish links now open this page: `DishCard`, the stall menu rows (name and photo), the home combos rail and the video reels. Helper `dishHref(stall, item)` in `cards.tsx`. Category links still use `/stall/<slug>#cat-…`.
+- `add-button.tsx`: new `size="lg"` (48px tall, 48px − / + targets).
+- **Tab titles:** stall and dish pages now set them with `generateMetadata` from `src/data/catalog.json` (the effect-based title I added earlier was overwritten by Next on client navigation, so it is removed). In Supabase mode the title comes from the seed names; tell me if you want it read from the backend instead.
+- `tsc` and `eslint` clean; checked click-through from home and the stall menu, back button, titles, and the Add stepper.
+
+### 2026-11-17 · A · STATUS (site on the local network, owner's request)
+
+- The dev server now runs in a Terminal tab with `npm.cmd run dev:lan` (new script: `next dev --hostname 0.0.0.0 --port 3001`), reachable from phones on the same Wi-Fi at **http://192.168.1.39:3001**. Hot reload still works for both of us.
+- `web/next.config.ts`: `allowedDevOrigins` is filled from this PC's IPv4 addresses at startup, otherwise Next blocks dev assets for LAN visitors and pages never hydrate. If the router hands out a new address, restart the server.
+- `.claude/launch.json` now only **attaches** to `http://localhost:3001`; it no longer starts its own server. Do not start a second one on 3001.
+- On this PC, PowerShell blocks `npm.ps1`; use `npm.cmd`.
+
+### 2026-11-17 · B · DONE (footer, owner's request)
+
+- `site-footer.tsx`: removed the "For the park" column (Stall dashboard, Admin panel); staff still reach `/partner` from the account page and the order page. New columns: **Company** (Home, Search dishes, Your orders, Get directions → Google Maps for the park address), **Carts** (one link per active truck from the catalog, plus All food trucks), **Social Links** (Instagram accounts that exist in the catalog: the park's `openskyfoodpark` and PandemKodi Dhaba's `pandemkodi_dhaba`; inline Instagram glyph since lucide dropped brand icons). Copyright line below.
+- **Dev server note:** the running `dev:lan` server (pid tree from `npm run dev:lan`) keeps serving the old footer from its server-side build even after the file changed, so the page logs a hydration mismatch until the server is restarted. The browser recovers and shows the new footer. Not a code problem.
+
+### 2026-11-17 · A · STATUS (Contact us + Help & Support pages, owner's request)
+
+Owner asked me for a **Contact us** page and a **Help & Support** page while you do the footer. Routes: **`/contact`** and **`/help`**. Please link them from the footer (and anywhere else you see fit); I will not touch `site-footer.tsx`.
+
+Files I am creating or editing: new `web/src/app/(customer)/contact/`, `web/src/app/(customer)/help/`, `web/src/components/contact-screen.tsx`, `help-screen.tsx`; `admin-screen.tsx` (new Messages tab, contact fields in Settings); `web/src/lib/{types,format}.ts`, `web/src/lib/backend/*`; `supabase/migrations/`, `supabase/tests/`, `shared/seed/build.mjs`. Contract change coming (support messages table, park contact fields); I will post it when done. I will not touch your other files.
+
+### 2026-11-17 · B · STATUS (dev server restarted; footer links for your pages)
+
+- The owner asked me to restart the dev server, because its server-side build kept serving the old footer (hydration mismatch). I stopped **your** `npm.cmd run dev:lan` process tree (sorry for the interruption) and started the same command again in a Terminal tab of my session titled "dev server (LAN 3001)". Same port, LAN still reachable at 192.168.1.39:3001. If you need it in your own tab, stop mine first; don't start a second one on 3001.
+- The restart also showed that `new Date()` in the footer breaks prerendering, so the copyright line is now just "© Open Sky Food Park".
+- Your request: the footer's Company column now links **Contact us** (`/contact`) and **Help & Support** (`/help`).
+
+### 2026-11-17 · A · DONE (Contact us + Help & Support) + CONTRACT v1.2
+
+**Pages** (customer layout, light theme, photo hero per DESIGN.md):
+- **`/contact`**: form (topic chips: Help with an order / Feedback / Lost and found / Run a truck here / Something else; name, email or phone, order number for order topics, message), success state with a reference like `HS-7K4QX`. Side cards: visit the park (address, hours if set, directions), reach the park team (phone and email only if set, Instagram), ask a truck directly. Accepts `?topic=order&order=OS-XXXXX` so you can link to it from the order page (e.g. a "Get help with this order" link).
+- **`/help`**: searchable FAQ in 7 topics (ordering, pickup/table, payment, changes, food and allergies, account, park and trucks), quick links (track order, message the park, ask a truck), truck contacts, "Still need help?". Answers describe only what the product does today; tax, service fee and table-service answers read `park_settings`. Questions have ids, so `/help#cancel`, `/help#token`, `/help#allergens` deep-link and open.
+- **Footer (yours):** please link both, labels "Help & Support" and "Contact us".
+- **Admin:** new **Messages** tab (open/all, mark in progress, close, reopen; email/phone links). **Settings** has a new "Contact details" block: park email, park phone, opening hours (free text).
+
+**CONTRACT v1.2** (`supabase/migrations/0002_support.sql`, new file; run it after 0001):
+- `park_settings` gains `contact_email`, `contact_phone`, `hours_text` (all nullable text; null = hide). In `catalog.json` they are `null` under `park`.
+- New table `support_requests`: `id`, `ref_no`, `customer_id` (nullable), `name`, `contact`, `topic` (`order` / `feedback` / `lost_found` / `vendor` / `other`), `order_no`, `message`, `status` (`new` / `in_progress` / `closed`), `created_at`, `handled_at`. Only admins can read or update it.
+- Send with `rpc('submit_support_request', { payload: { name, contact, topic, order_no, message } })` → `{ id, ref_no }`. Works signed in or not. Errors: `name_required`, `contact_required`, `message_too_short` (< 5 chars), `message_too_long` (> 2000), `too_many_messages` (5 per contact per hour).
+- Flutter: if you build a Help or Contact screen, use the same topics and RPC; the web texts are in `web/src/components/help-screen.tsx` and `support-shared.tsx`.
+- `npm run db:test`: 56 checks pass. `tsc`, `eslint`, `next build` pass.
+
+### 2026-11-17 · A · DONE + CONTRACT v1.3 (dish descriptions and "Serves", owner's request)
+
+- Owner asked for a one-line description on every dish, shown like "Serves 4 | Andhra's spicy … rice.", with Serves set to 4 for now and editable by the admin.
+- **CONTRACT v1.3** (`supabase/migrations/0003_serves.sql`): `menu_items.serves` (nullable int, 1–50; null hides it). In `catalog.json` every item now has `serves: 4` and a `description`.
+- Descriptions live in **`shared/seed/descriptions.mjs`** (keyed by item id), merged by `build.mjs`. They are **drafts** written from the dish names and menu photos, not confirmed by the trucks; no allergen, portion or side-dish claims. `build.mjs` warns about dishes with no line and fails on ids that are not on a menu.
+- Web: `dishBlurb()` in `lib/format.ts` renders "Serves N | description" (either half optional). Used in the stall menu rows (`cards.tsx`, two-line clamp) and the dish page (`dish-screen.tsx`, one line each, small edits in your files). Admin → Menus → Edit dish has "One-line description" and "Serves".
+- **Flutter:** add `serves` to the MenuItem model and show the same "Serves N | description" line under the price.
+- `db:test` 57 pass; `tsc` and `eslint` clean; checked on the stall page.
+
+### 2026-11-18 · A · STATUS (GitHub + Vercel + sign-in, owner's request)
+
+Owner asked to push the whole project to **github.com/Vimtra/Open-Sky-Food-Park** (it is a **public** repo) and host the website on Vercel with the real database and logins (Google or phone for customers, an admin login).
+
+- Decision: stay on **Supabase Auth** (no Firebase). It already guards our tables (`auth.uid()` in every policy), does Google and phone sign-in, and has a Flutter SDK. Firebase would add a second user system to bridge.
+- I am editing: `web/src/components/{sign-in,account-screens,staff-shell}.tsx`, one line in `cart-screen.tsx` (show email when there is no phone), `web/src/lib/backend/*`, `web/scripts/`, new `DEPLOY.md`, `supabase/`. 
+- **The push will include `mobile/`** (owner wants the whole project uploaded) as it is on disk now, minus build output. If you are mid-change there, it goes up as-is; push a follow-up commit when you are done. Do not commit secrets: `mobile/.env`, `google-services.json` and keystores must stay out (the root `.gitignore` has `.env*`; check the others).
+- **Flutter:** customers sign in with `supabase.auth.signInWithOAuth(OAuthProvider.google, redirectTo: 'com.openskyfoodpark.app://login-callback')` (or native Google Sign-In + `signInWithIdToken`) and phone OTP as before. The redirect URL must be added in Supabase → Auth → URL Configuration.

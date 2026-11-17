@@ -60,8 +60,8 @@ const fails = async (sql, params = []) => {
 };
 
 await db.exec(SHIM);
-await db.exec(read("supabase/migrations/0001_init.sql"));
-await db.exec(read("supabase/seed.sql"));
+// setup.sql = every migration + the seed (npm run db:bundle); this is exactly what a new project runs.
+await db.exec(read("supabase/setup.sql"));
 // re-running the seed must be harmless
 await db.exec(read("supabase/seed.sql"));
 
@@ -83,6 +83,10 @@ check("profile created for each new user", (await one("select count(*)::int n fr
 await as("anon");
 check("anon reads stalls", (await one("select count(*)::int n from public.stalls")).n === catalog.stalls.length);
 check("anon reads menu items", (await one("select count(*)::int n from public.menu_items")).n === catalog.menu_items.length);
+check(
+  "every seeded dish has a description and a serves count",
+  (await one("select count(*)::int n from public.menu_items where description is null or serves is null")).n === 0,
+);
 check("anon cannot place an order", /permission denied|sign_in_required/.test((await fails("select public.place_order('{}'::jsonb)")) ?? ""));
 
 // ---- customer places a two-stall order, pay at stall
@@ -223,6 +227,31 @@ check(
     splitStalls.every((s) => Math.abs(s.tax_cents - (s.subtotal_cents * 9.375) / 100) <= 1),
   JSON.stringify({ order: splitOrder.tax_cents, stalls: splitStalls }),
 );
+
+// ---- support messages (0002_support.sql)
+const msg = (over = {}) => JSON.stringify({ name: "Test Guest", contact: "guest@example.com", topic: "order", order_no: "os-abcde", message: "My falooda never came.", ...over });
+await as("anon");
+const sent = (await one("select public.submit_support_request($1::jsonb) as r", [msg()])).r;
+check("anyone can send a support message", /^HS-[2-9A-HJ-NP-Z]{5}$/.test(sent.ref_no), sent.ref_no);
+check("anon cannot read support messages", /permission denied/.test((await fails("select * from public.support_requests")) ?? ""));
+check("empty message rejected", /message_too_short/.test((await fails("select public.submit_support_request($1::jsonb)", [msg({ message: " hi " })])) ?? ""));
+check("missing contact rejected", /contact_required/.test((await fails("select public.submit_support_request($1::jsonb)", [msg({ contact: "" })])) ?? ""));
+check("unknown topic rejected", /invalid input value/.test((await fails("select public.submit_support_request($1::jsonb)", [msg({ topic: "refund_now" })])) ?? ""));
+for (let i = 0; i < 4; i++) await db.query("select public.submit_support_request($1::jsonb)", [msg()]);
+check("sixth message in an hour from one contact is refused", /too_many_messages/.test((await fails("select public.submit_support_request($1::jsonb)", [msg()])) ?? ""));
+await as("authenticated", customer);
+const mine = (await one("select public.submit_support_request($1::jsonb) as r", [msg({ contact: "+14085550101" })])).r;
+check("customer cannot read messages, even their own", (await one("select count(*)::int n from public.support_requests")).n === 0);
+await fails("update public.support_requests set status = 'closed'");
+await as("authenticated", admin);
+const stored = await one("select * from public.support_requests where id = $1", [mine.id]);
+check("customer cannot edit messages", stored.status === "new");
+check("signed-in message is linked to the customer, order number upper-cased", stored.customer_id === customer && stored.order_no === "OS-ABCDE");
+await db.query("update public.support_requests set status = 'closed', handled_at = now() where id = $1", [mine.id]);
+check("admin reads and closes messages", (await one("select status from public.support_requests where id = $1", [mine.id])).status === "closed");
+await db.query("update public.park_settings set contact_email = 'hello@example.com' where id = 1");
+await as("anon");
+check("park contact fields are public", (await one("select contact_email from public.park_settings where id = 1")).contact_email === "hello@example.com");
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

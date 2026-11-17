@@ -17,14 +17,8 @@ const dietChips: { diet: Diet; label: string }[] = [
 
 export function StallSkeleton() {
   return (
-    <Container className="max-w-[840px] py-6" aria-hidden>
-      <div className="flex items-center gap-4">
-        <div className="skeleton size-16 rounded-full" />
-        <div className="flex-1 space-y-2">
-          <div className="skeleton h-7 w-56" />
-          <div className="skeleton h-4 w-40" />
-        </div>
-      </div>
+    <Container className="max-w-[840px] pt-14 pb-6" aria-hidden>
+      <div className="skeleton -mx-4 h-56 rounded-none md:mx-0 md:h-72 md:rounded-xl" />
       <div className="mt-8 space-y-6">
         {Array.from({ length: 5 }, (_, i) => (
           <div key={i} className="flex justify-between gap-4">
@@ -139,18 +133,33 @@ export function StallScreen({ slug }: { slug: string }) {
         All food trucks
       </Link>
 
-      <header className="mt-2 flex items-start gap-4">
-        {stall.logo_url && (
-          <img src={imageSrc(stall.logo_url)!} alt="" className="size-16 shrink-0 rounded-full border border-line bg-white object-cover md:size-20" />
+      {/* Photo hero: the truck's cover photo, with its name set over a navy fade at the bottom. */}
+      <header className="on-night relative isolate -mx-4 mt-1 flex min-h-56 items-end overflow-hidden bg-night-900 text-white md:mx-0 md:min-h-72 md:rounded-xl">
+        {stall.cover_url && (
+          <img
+            src={imageSrc(stall.cover_url)!}
+            alt=""
+            fetchPriority="high"
+            className={cn("absolute inset-0 -z-20 size-full object-cover", !stall.is_open && "grayscale")}
+          />
         )}
-        <div className="min-w-0">
-          <h1 className="text-title md:text-display">{stall.name}</h1>
-          {stall.tagline && <p className="mt-0.5 font-medium text-ink-700">{stall.tagline}</p>}
-          <p className="mt-1 text-label font-medium text-ink-500">{stall.cuisines.join(" · ")}</p>
+        <div
+          aria-hidden
+          className="absolute inset-0 -z-10 bg-linear-to-t/oklch from-night-900/90 via-night-900/35 to-night-900/0"
+        />
+        <div className="flex w-full items-end gap-4 p-4 md:p-6">
+          {stall.logo_url && (
+            <img src={imageSrc(stall.logo_url)!} alt="" className="size-14 shrink-0 rounded-full border-2 border-white bg-white object-cover md:size-18" />
+          )}
+          <div className="min-w-0">
+            <h1 className="text-title md:text-[2.5rem] md:leading-[2.875rem] md:font-extrabold md:tracking-[-0.03em]">{stall.name}</h1>
+            {stall.tagline && <p className="mt-0.5 font-semibold text-white/90">{stall.tagline}</p>}
+            <p className="mt-0.5 text-label font-medium text-white/75">{stall.cuisines.join(" · ")}</p>
+          </div>
         </div>
       </header>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-line py-3 text-label">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line py-3 text-label">
         <OpenStatus stall={stall} />
         {stall.location_label && (
           <span className="inline-flex items-center gap-1.5 text-ink-700">
