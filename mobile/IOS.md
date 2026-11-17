@@ -63,3 +63,12 @@ Apple only lets signed apps run. Pick one:
 - App Store screenshots (6.9" and 6.5" iPhone, 13" iPad if iPad stays supported).
 - Apple guideline 4.8: an app that offers Google sign-in must also offer a privacy-focused option such as **Sign in with Apple**. Add it before submitting (Supabase supports Apple as a provider).
 - The app currently runs on demo data; it needs the Supabase connection first (board items A9, B2).
+
+## Screenshots without installing anything
+
+Each iOS build also opens the app on iPhone and iPad Simulators in the cloud and takes screenshots (launch screen and home screen). See them:
+
+- on the build's page: **Actions → iOS build → the run → Summary**, or
+- always the latest: https://github.com/Vimtra/Open-Sky-Food-Park/tree/ios-screenshots
+
+They show only the first screens, because the build cannot tap through the app. To click around, upload `OpenSky-ios-simulator.zip` to appetize.io.
