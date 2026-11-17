@@ -1,0 +1,14 @@
+{
+  "name": "open-sky-food-park",
+  "private": true,
+  "description": "Tooling for the shared contract. The apps live in web/ (Next.js) and mobile/ (Flutter).",
+  "type": "module",
+  "scripts": {
+    "seed:images": "python shared/seed/crop_images.py",
+    "seed:build": "node shared/seed/build.mjs",
+    "db:test": "node supabase/tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0"
+  }
+}

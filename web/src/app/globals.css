@@ -1,0 +1,506 @@
+@import "tailwindcss";
+
+/* Mirrors shared/design-tokens.json. Change values there first. */
+@theme {
+  --color-*: initial;
+  /* Palette in OKLCH (same colours as the hex in shared/design-tokens.json, noted on the right)
+     so equal lightness steps look equal. Borders are alpha, so they blend into any surface. */
+  --color-white: oklch(100% 0 0);
+  --color-black: oklch(0% 0 0);
+
+  --color-night-950: oklch(15.9% 0.043 271.6); /* #070b1f */
+  --color-night-900: oklch(19.6% 0.06 270.1); /* #0b1230 */
+  --color-night-800: oklch(24.5% 0.078 270.4); /* #131c45 */
+  --color-night-700: oklch(30.7% 0.094 270.2); /* #1e2a5e */
+  --color-night-muted: oklch(76.7% 0.054 275.5); /* #a9b1d6 */
+
+  --color-ink-900: oklch(20.1% 0.058 272.8); /* #0e1330 */
+  --color-ink-700: oklch(38.1% 0.055 275.3); /* #3a4060 */
+  --color-ink-500: oklch(53.7% 0.044 275.4); /* #666c88 */
+  --color-ink-300: oklch(79.7% 0.022 274); /* #b8bccb */
+
+  --color-surface-0: oklch(100% 0 0); /* #ffffff */
+  --color-surface-1: oklch(97.4% 0.005 275); /* #f5f6fa */
+  --color-surface-2: oklch(95% 0.01 273.4); /* #eceef5 */
+  /* ink-900 at low alpha: reads as #e5e7ef on white, and still works on grey or tinted cards. */
+  --color-line: oklch(20.1% 0.058 272.8 / 0.11);
+  --color-line-strong: oklch(20.1% 0.058 272.8 / 0.28);
+
+  --color-ember-50: oklch(97.3% 0.018 64.9); /* #fff4ea */
+  --color-ember-100: oklch(94% 0.04 63.7); /* #ffe6d0 */
+  --color-ember-400: oklch(77.6% 0.159 59); /* #ff9a3d */
+  --color-ember-500: oklch(72.4% 0.187 48.9); /* #ff7a1a */
+  --color-ember-600: oklch(67.1% 0.191 44.7); /* #f06405 */
+  --color-ember-700: oklch(56.1% 0.169 40.7); /* #c2470a */
+
+  --color-gold-400: oklch(84.9% 0.151 81.3); /* #ffc247 */
+
+  --color-leaf-50: oklch(96.1% 0.018 161.1); /* #e8f6ee */
+  --color-leaf-600: oklch(52.8% 0.128 154.5); /* #0c8048 */
+  --color-leaf-700: oklch(46.5% 0.113 154.4); /* #086b3b */
+
+  --color-chili-50: oklch(95.6% 0.019 25.6); /* #fdecea */
+  --color-chili-600: oklch(54.1% 0.197 29.1); /* #c8281e */
+
+  --color-egg-600: oklch(59.1% 0.132 65.1); /* #b26a00 */
+
+  --font-sans: var(--font-figtree), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
+  --text-display--font-weight: 800;
+  --text-display--letter-spacing: -0.025em;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.875rem;
+  --text-title--font-weight: 800;
+  --text-title--letter-spacing: -0.02em;
+  --text-heading: 1.25rem;
+  --text-heading--line-height: 1.625rem;
+  --text-heading--font-weight: 800;
+  --text-heading--letter-spacing: -0.015em;
+  --text-subheading: 1.125rem;
+  --text-subheading--line-height: 1.5rem;
+  --text-subheading--font-weight: 700;
+  --text-subheading--letter-spacing: -0.01em;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.25rem;
+  --text-label--font-weight: 600;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.125rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--letter-spacing: 0.01em;
+  --text-token: 2.5rem;
+  --text-token--line-height: 2.5rem;
+  --text-token--font-weight: 800;
+  --text-token--letter-spacing: -0.03em;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-sm: 0 1px 2px rgb(14 19 48 / 0.08);
+  --shadow-md: 0 6px 16px -6px rgb(14 19 48 / 0.18), 0 2px 4px rgb(14 19 48 / 0.06);
+  --shadow-lg: 0 18px 40px -14px rgb(14 19 48 / 0.3), 0 4px 10px rgb(14 19 48 / 0.08);
+  --shadow-up: 0 -6px 20px -8px rgb(14 19 48 / 0.18);
+
+  /* Motion (charles-ux-animation): enter = ease-out, exit = ease-in, move in place = ease-in-out.
+     Durations: press/hover/colour 150ms, popover 200ms, sheet/modal/toast 260ms, page 340ms; exits ~25% shorter. */
+  --ease-enter: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-exit: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --animate-sheet-up: sheet-up 260ms var(--ease-enter);
+  --animate-fade-in: fade-in 200ms var(--ease-enter);
+  --animate-pop: pop 220ms var(--ease-enter);
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(16px);
+      opacity: 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  /* Never from scale 0: entrances start at 0.95. */
+  @keyframes pop {
+    from {
+      transform: scale(0.95);
+      opacity: 0.5;
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-padding-top: 8.5rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--color-surface-0);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5rem;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-ember-100);
+    color: var(--color-ink-900);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ember-600);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  .on-night :focus-visible,
+  .on-night:focus-visible {
+    outline-color: var(--color-gold-400);
+  }
+
+  input,
+  textarea,
+  select {
+    caret-color: var(--color-ember-600);
+  }
+
+  ::placeholder {
+    color: var(--color-ink-500);
+    opacity: 1;
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  /* Icon stroke follows the weight of the text beside it (lucide icons default to 2). */
+  :is(.text-small, .text-body, .font-normal) > .lucide {
+    stroke-width: 1.75;
+  }
+  :is(.text-label, .font-semibold, .hero-pill) > .lucide {
+    stroke-width: 2.25;
+  }
+  :is(.text-subheading, .font-bold) > .lucide {
+    stroke-width: 2.5;
+  }
+  :is(.text-heading, .text-title, .font-extrabold) > .lucide {
+    stroke-width: 2.75;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-300) transparent;
+  }
+
+  button,
+  [role="button"],
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Horizontal rail that bleeds to the screen edge on phones and snaps per card. */
+@utility rail {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  & > * {
+    scroll-snap-align: start;
+    flex-shrink: 0;
+  }
+}
+
+/* Carousel edges fade where there is more to scroll (the rail toggles data-start / data-end).
+   The fade widths are registered so they animate instead of jumping. */
+@property --fade-start {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@property --fade-end {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@utility rail-fade {
+  --fade-start: 0%;
+  --fade-end: 0%;
+  mask-image: linear-gradient(90deg, transparent, black var(--fade-start) calc(100% - var(--fade-end)), transparent);
+  transition:
+    --fade-start 200ms var(--ease-move),
+    --fade-end 200ms var(--ease-move);
+  &[data-start] {
+    --fade-start: 15%;
+  }
+  &[data-end] {
+    --fade-end: 15%;
+  }
+}
+
+/* Icon swap: both icons share one grid cell; the outgoing one shrinks, fades and blurs. */
+@utility icon-swap {
+  display: inline-grid;
+  & > * {
+    grid-area: 1 / 1;
+    transition:
+      opacity 150ms var(--ease-enter),
+      scale 150ms var(--ease-enter),
+      filter 150ms var(--ease-enter);
+  }
+  & > [data-hidden] {
+    opacity: 0;
+    scale: 0.3;
+    filter: blur(4px);
+    transition-timing-function: var(--ease-exit);
+    transition-duration: 110ms;
+  }
+}
+
+/* Logo intro (OpenSkyLogo animate): one orchestrated ~1.7s sequence, played once.
+   Letters rise, the chef hat drops onto the O, "Sky" and the swoosh paint in, sparks pop,
+   the dashes draw outward, FOOD PARK settles, then the tagline dots switch on like string lights. */
+.logo-intro :is(.lg-letter, .lg-hat, .lg-spark, .lg-dash-l, .lg-dash-r) {
+  transform-box: fill-box;
+}
+.logo-intro .lg-letter {
+  transform-origin: 50% 100%;
+  animation: lg-rise 650ms var(--ease-enter) calc(150ms + var(--i) * 60ms) both;
+}
+.logo-intro .lg-hat {
+  transform-origin: 50% 100%;
+  animation: lg-drop 750ms var(--ease-enter) 380ms both;
+}
+/* "Sky" writes itself on like After Effects auto-fill: thick pen strokes along the letters'
+   centre line (sky-pen.ts) draw into a mask over the fill, left to right, 520ms -> ~1350ms. */
+.logo-intro .lg-pen {
+  stroke-dasharray: 1 1;
+  animation: lg-pen var(--t) cubic-bezier(0.45, 0, 0.25, 1) calc(520ms + var(--d)) both;
+}
+.logo-intro .lg-pen-done {
+  animation: lg-pen-done 150ms linear 1330ms both;
+}
+/* The swoosh under "Open" runs first and flows straight into the pen writing "Sky". */
+.logo-intro .lg-swoosh {
+  animation: lg-wipe 320ms cubic-bezier(0.45, 0, 0.25, 1) 340ms both;
+}
+.logo-intro .lg-spark {
+  transform-origin: 0% 100%;
+  animation: lg-pop 420ms var(--ease-enter) calc(1150ms + var(--i) * 60ms) both;
+}
+.logo-intro .lg-dash-l {
+  transform-origin: 100% 50%;
+  animation: lg-draw 500ms var(--ease-enter) 1250ms both;
+}
+.logo-intro .lg-dash-r {
+  transform-origin: 0% 50%;
+  animation: lg-draw 500ms var(--ease-enter) 1250ms both;
+}
+.logo-intro .lg-name {
+  animation: lg-settle 600ms var(--ease-enter) 1150ms both;
+}
+/* Tagline pops up piece by piece (word, dot, word...): 7 pieces, 360ms each, 140ms apart,
+   so the whole row lands within 1.2s of the first word. */
+.logo-intro :is(.lg-tag, .lg-bulb) {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: lg-popup 360ms var(--ease-enter) calc(1350ms + var(--i) * 140ms) both;
+}
+.logo-intro .lg-bulb {
+  transform-origin: 50% 50%;
+  animation-name: lg-bulb-pop;
+}
+@keyframes lg-rise {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+    filter: blur(6px);
+  }
+}
+@keyframes lg-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-120px) rotate(-10deg);
+  }
+  70% {
+    transform: translateY(6px) rotate(2deg);
+  }
+}
+@keyframes lg-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes lg-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes lg-draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes lg-settle {
+  from {
+    opacity: 0;
+    letter-spacing: 0.9em;
+  }
+}
+@keyframes lg-pen {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  1% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@keyframes lg-pen-done {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes lg-popup {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lg-bulb-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.5);
+    filter: drop-shadow(0 0 14px oklch(86% 0.17 92));
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Home hero: night photo under a navy scrim. Phones read text at the bottom, wider screens on the left. */
+@utility hero-scrim {
+  background:
+    linear-gradient(to top in oklch, var(--color-night-900) 8%, oklch(19.6% 0.06 270.1 / 0.72) 48%, oklch(19.6% 0.06 270.1 / 0.15) 100%);
+  @media (width >= 48rem) {
+    background:
+      linear-gradient(90deg in oklch, var(--color-night-900) 0%, oklch(19.6% 0.06 270.1 / 0.82) 34%, oklch(19.6% 0.06 270.1 / 0) 68%),
+      linear-gradient(to top in oklch, oklch(19.6% 0.06 270.1 / 0.6), transparent 35%);
+  }
+}
+
+/* Fact pill on the night hero: a lighter surface, not a shadow, gives it depth. */
+@utility hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding-inline: 0.75rem;
+  border-radius: 999px;
+  border: 1px solid oklch(100% 0 0 / 0.14);
+  background: oklch(30.7% 0.094 270.2 / 0.55);
+  backdrop-filter: blur(8px);
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
+  font-weight: 600;
+  color: var(--color-white);
+}
+
+/* Grows the tap area to at least 44px without changing what you see. The element must be positioned. */
+@utility hit-44 {
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    translate: -50% -50%;
+  }
+}
+
+/* Spinner that only shows when a wait is long enough to notice (after 300ms). */
+@utility spinner-delayed {
+  animation:
+    spin 1s linear infinite,
+    fade-in 150ms var(--ease-enter) 300ms both;
+}
+
+@utility skeleton {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  /* The logo shows finished, all at once. */
+  .logo-intro,
+  .logo-intro * {
+    animation: none !important;
+  }
+  /* Work-in-progress indicators keep moving: a frozen spinner reads as a hang. */
+  .animate-spin,
+  .spinner-delayed {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

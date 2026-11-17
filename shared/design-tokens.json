@@ -1,0 +1,193 @@
+{
+  "$comment": "Open Sky Food Park design tokens. Source of truth for web (web/src/app/globals.css mirrors these, written there in OKLCH) and Flutter (map into ThemeData). Change values here first, then log a CONTRACT entry in COLLAB.md.",
+  "version": 2,
+  "color": {
+    "night": {
+      "700": "#1E2A5E",
+      "800": "#131C45",
+      "900": "#0B1230",
+      "950": "#070B1F",
+      "$comment": "The logo's night sky. Shell surfaces: app header band, footer, splash."
+    },
+    "ink": {
+      "300": "#B8BCCB",
+      "500": "#666C88",
+      "700": "#3A4060",
+      "900": "#0E1330",
+      "$comment": "Text on light surfaces. 900 primary, 700 secondary, 500 meta (min 4.5:1 on white), 300 disabled."
+    },
+    "surface": {
+      "0": "#FFFFFF",
+      "1": "#F5F6FA",
+      "2": "#ECEEF5"
+    },
+    "line": "rgba(14,19,48,0.11)",
+    "lineStrong": "rgba(14,19,48,0.28)",
+    "$lineComment": "Borders and dividers are ink.900 at low alpha so they blend into any surface. lineStrong is the hover and emphasis border.",
+    "ember": {
+      "50": "#FFF4EA",
+      "100": "#FFE6D0",
+      "400": "#FF9A3D",
+      "500": "#FF7A1A",
+      "600": "#F06405",
+      "700": "#C2470A",
+      "$comment": "The logo's orange lettering. 500 is the primary action fill and always carries night.900 text, never white. 700 is orange text and icons on white."
+    },
+    "gold": {
+      "400": "#FFC247"
+    },
+    "leaf": {
+      "50": "#E8F6EE",
+      "600": "#0C8048",
+      "700": "#086B3B",
+      "$comment": "Veg mark, ADD button label, quantity stepper, success, 'Ready'."
+    },
+    "chili": {
+      "50": "#FDECEA",
+      "600": "#C8281E",
+      "$comment": "Non-veg mark, errors, destructive actions."
+    },
+    "egg": {
+      "600": "#B26A00",
+      "$comment": "Egg diet mark only."
+    }
+  },
+  "role": {
+    "background": "surface.0",
+    "backgroundAlt": "surface.1",
+    "text": "ink.900",
+    "textSecondary": "ink.700",
+    "textMeta": "ink.500",
+    "divider": "line",
+    "shell": "night.900",
+    "onShell": "#FFFFFF",
+    "onShellMuted": "#A9B1D6",
+    "primary": "ember.500",
+    "primaryPressed": "ember.600",
+    "onPrimary": "night.900",
+    "accentText": "ember.700",
+    "add": "leaf.600",
+    "success": "leaf.600",
+    "danger": "chili.600",
+    "focusRing": "ember.500"
+  },
+  "font": {
+    "family": "Figtree",
+    "fallback": "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    "weights": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700,
+      "extrabold": 800
+    },
+    "numeric": "tabular figures for prices, totals, token numbers and quantities"
+  },
+  "type": {
+    "$comment": "size / line-height in px, weight, letter-spacing in em. Fixed scale, not fluid.",
+    "display": {
+      "size": 32,
+      "line": 38,
+      "weight": 800,
+      "tracking": -0.025
+    },
+    "title": {
+      "size": 24,
+      "line": 30,
+      "weight": 800,
+      "tracking": -0.02
+    },
+    "heading": {
+      "size": 20,
+      "line": 26,
+      "weight": 800,
+      "tracking": -0.015
+    },
+    "subheading": {
+      "size": 18,
+      "line": 24,
+      "weight": 700,
+      "tracking": -0.01
+    },
+    "bodyStrong": {
+      "size": 16,
+      "line": 22,
+      "weight": 700,
+      "tracking": -0.005
+    },
+    "body": {
+      "size": 16,
+      "line": 24,
+      "weight": 400,
+      "tracking": 0
+    },
+    "label": {
+      "size": 14,
+      "line": 20,
+      "weight": 600,
+      "tracking": 0
+    },
+    "small": {
+      "size": 13,
+      "line": 18,
+      "weight": 500,
+      "tracking": 0
+    },
+    "caption": {
+      "size": 12,
+      "line": 16,
+      "weight": 600,
+      "tracking": 0.01
+    },
+    "token": {
+      "size": 40,
+      "line": 40,
+      "weight": 800,
+      "tracking": -0.03
+    }
+  },
+  "radius": {
+    "xs": 6,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "pill": 999
+  },
+  "space": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "shadow": {
+    "sm": "0 1px 2px rgba(14,19,48,0.08)",
+    "md": "0 6px 16px -6px rgba(14,19,48,0.18), 0 2px 4px rgba(14,19,48,0.06)",
+    "lg": "0 18px 40px -14px rgba(14,19,48,0.30), 0 4px 10px rgba(14,19,48,0.08)"
+  },
+  "motion": {
+    "$comment": "Durations in ms. Exits run 20-30% shorter than entrances. Animate transform and opacity only; honour reduced motion.",
+    "press": 150,
+    "popover": 200,
+    "sheet": 260,
+    "page": 340,
+    "easeEnter": "cubic-bezier(0.32,0.72,0,1)",
+    "easeExit": "cubic-bezier(0.55,0,1,0.45)",
+    "easeMove": "cubic-bezier(0.77,0,0.175,1)",
+    "pressScale": 0.96
+  },
+  "layout": {
+    "maxContentWidth": 1200,
+    "pagePaddingMobile": 16,
+    "pagePaddingDesktop": 24,
+    "minTapTarget": 44,
+    "mobileBreakpoint": 768
+  }
+}
