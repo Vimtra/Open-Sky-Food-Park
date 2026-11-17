@@ -77,6 +77,7 @@ class MenuItem {
         name = j['name'] as String,
         description = _str(j['description']),
         serves = j['serves'] is num ? (j['serves'] as num).toInt() : null,
+        sizeLabel = _str(j['size_label']),
         priceCents = _int(j['price_cents']),
         diet = dietFrom(j['diet']),
         imageUrl = _str(j['image_url']),
@@ -87,6 +88,9 @@ class MenuItem {
 
   final String id, stallId, categoryId, name;
   final String? description, imageUrl, craving;
+
+  /// Cup or portion size, e.g. "12 oz" (contract v1.4). Shown instead of "Serves N" when set.
+  final String? sizeLabel;
   final int? serves;
   final int priceCents, sortOrder;
   final Diet? diet;
@@ -95,9 +99,10 @@ class MenuItem {
   /// The part of the id after `<stall>.`: used in links.
   String get slug => id.contains('.') ? id.substring(id.indexOf('.') + 1) : id;
 
-  /// "Serves 4 | Spicy, tangy fish curry…" (either half optional), as on the website.
+  /// "12 oz | …" or "Serves 4 | …" (either half optional): the website's dishBlurb() rule.
   String? get blurb {
-    final parts = [if (serves != null) 'Serves $serves', ?description];
+    final amount = sizeLabel?.trim() ?? (serves != null ? 'Serves $serves' : null);
+    final parts = [?amount, ?description];
     return parts.isEmpty ? null : parts.join(' | ');
   }
 }

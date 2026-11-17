@@ -32,4 +32,21 @@ void main() {
     expect(item(null, '  ').blurb, isNull);
     expect(item(null, null).slug, 'd');
   });
+
+  test('size label replaces "Serves" in the blurb (contract v1.4)', () {
+    MenuItem item(Object? size, Object? serves) => MenuItem.fromJson({
+          'id': 's.d',
+          'stall_id': 's',
+          'category_id': 's.c',
+          'name': 'D',
+          'price_cents': 100,
+          'size_label': size,
+          'serves': serves,
+          'description': 'Rose falooda.',
+        });
+    expect(item('12 oz', null).blurb, '12 oz | Rose falooda.');
+    expect(item('8 oz', 4).blurb, '8 oz | Rose falooda.');
+    expect(item(null, 4).blurb, 'Serves 4 | Rose falooda.');
+    expect(item('  ', null).blurb, 'Rose falooda.');
+  });
 }
