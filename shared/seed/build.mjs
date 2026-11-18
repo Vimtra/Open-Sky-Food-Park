@@ -48,6 +48,7 @@ const park = {
   contact_email: null,
   contact_phone: null,
   hours_text: null,
+  coupons_enabled: true,
 };
 
 // ---------------------------------------------------------------- cravings

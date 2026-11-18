@@ -2,9 +2,9 @@
 -- Loads the catalog from the owner's menus. Safe to re-run: rows are upserted.
 -- Prices for the ids in catalog.json > placeholder_price_item_ids are placeholders.
 
-insert into public.park_settings (id, name, tagline, address, timezone, instagram, logo_url, tax_percent, service_fee_cents, ordering_enabled, table_service_enabled, announcement, contact_email, contact_phone, hours_text) values
-  (1, 'Open Sky Food Park', 'Food · Fun · Music · Live Screen', '200 Serra Way, Milpitas, CA', 'America/Los_Angeles', 'openskyfoodpark', 'img/brand/open-sky-logo-on-night.png', 0, 0, true, true, null, null, null, null)
-on conflict (id) do update set name = excluded.name, tagline = excluded.tagline, address = excluded.address, timezone = excluded.timezone, instagram = excluded.instagram, logo_url = excluded.logo_url, tax_percent = excluded.tax_percent, service_fee_cents = excluded.service_fee_cents, ordering_enabled = excluded.ordering_enabled, table_service_enabled = excluded.table_service_enabled, announcement = excluded.announcement, contact_email = excluded.contact_email, contact_phone = excluded.contact_phone, hours_text = excluded.hours_text;
+insert into public.park_settings (id, name, tagline, address, timezone, instagram, logo_url, tax_percent, service_fee_cents, ordering_enabled, table_service_enabled, announcement, contact_email, contact_phone, hours_text, coupons_enabled) values
+  (1, 'Open Sky Food Park', 'Food · Fun · Music · Live Screen', '200 Serra Way, Milpitas, CA', 'America/Los_Angeles', 'openskyfoodpark', 'img/brand/open-sky-logo-on-night.png', 0, 0, true, true, null, null, null, null, true)
+on conflict (id) do update set name = excluded.name, tagline = excluded.tagline, address = excluded.address, timezone = excluded.timezone, instagram = excluded.instagram, logo_url = excluded.logo_url, tax_percent = excluded.tax_percent, service_fee_cents = excluded.service_fee_cents, ordering_enabled = excluded.ordering_enabled, table_service_enabled = excluded.table_service_enabled, announcement = excluded.announcement, contact_email = excluded.contact_email, contact_phone = excluded.contact_phone, hours_text = excluded.hours_text, coupons_enabled = excluded.coupons_enabled;
 
 insert into public.cravings (slug, name, image_url, sort_order) values
   ('combos', 'Pulka Combos', 'img/photo/pandemkodi-dhaba/fish-curry-with-fresh-live-pulka.jpg', 1),

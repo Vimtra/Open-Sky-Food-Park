@@ -302,6 +302,12 @@ export function OrderScreen({ id }: { id: string }) {
             <dt>Item total</dt>
             <dd className="tabular-nums">{money(order.item_total_cents)}</dd>
           </div>
+          {(order.discount_cents ?? 0) > 0 && (
+            <div className="flex justify-between font-bold text-leaf-700">
+              <dt>Coupon {order.coupon_code}</dt>
+              <dd className="tabular-nums">−{money(order.discount_cents)}</dd>
+            </div>
+          )}
           {order.tax_cents > 0 && (
             <div className="flex justify-between">
               <dt>Sales tax</dt>

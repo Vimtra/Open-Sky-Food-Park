@@ -4,8 +4,7 @@ import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { backend, isDemo } from "@/lib/backend";
-import { friendlyError, imageSrc } from "@/lib/format";
-import { useCatalog } from "@/lib/hooks";
+import { friendlyError } from "@/lib/format";
 import type { Session } from "@/lib/types";
 import { OpenSkyLogo } from "./brand/open-sky-logo";
 import { GoogleSignInButton } from "./sign-in";
@@ -39,9 +38,12 @@ export function StaffHeader({ title, session, children }: { title: string; sessi
   );
 }
 
-/** Sign-in for stall staff and admins. Demo mode offers one-tap entry instead of credentials. */
+/**
+ * Sign-in for stall staff and admins. Each stall has its own login (email + password) that the park
+ * admin sets in Admin → Stalls; signing in with it opens only that stall. Demo mode keeps a one-tap
+ * entry for the admin panel only.
+ */
 export function StaffSignIn({ want }: { want: "stall_staff" | "admin" }) {
-  const { index } = useCatalog();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -59,79 +61,77 @@ export function StaffSignIn({ want }: { want: "stall_staff" | "admin" }) {
     }
   };
 
-  if (isDemo) {
+  if (isDemo && want === "admin") {
     return (
       <Container className="max-w-md py-10">
-        <h1 className="text-title">{want === "admin" ? "Admin panel" : "Stall dashboard"}</h1>
-        <p className="mt-2 text-ink-700">
-          Demo mode: no password needed. {want === "admin" ? "Step in as the park admin." : "Pick the stall you want to run."}
-        </p>
+        <h1 className="text-title">Admin panel</h1>
+        <p className="mt-2 text-ink-700">Demo mode: no password needed for the park admin.</p>
         {error && (
           <Notice tone="error" className="mt-4">
             {error}
           </Notice>
         )}
-        {want === "admin" ? (
-          <Button size="lg" className="mt-6 w-full" loading={busy === "admin"} onClick={() => run("admin", () => backend().demoStaffSignIn("admin"))}>
-            Continue as park admin
-          </Button>
-        ) : (
-          <ul className="mt-6 space-y-3">
-            {index?.stalls.map((stall) => (
-              <li key={stall.id}>
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => run(stall.id, () => backend().demoStaffSignIn("stall_staff", stall.id))}
-                  className="flex w-full items-center gap-3 rounded-lg border border-line p-3 text-left transition-colors duration-150 hover:bg-surface-1"
-                >
-                  {stall.logo_url && <img src={imageSrc(stall.logo_url)!} alt="" className="size-12 rounded-full border border-line bg-white object-cover" />}
-                  <span className="flex-1 font-bold">{stall.name}</span>
-                  <span className="text-label font-bold text-ember-700">{busy === stall.id ? "Opening…" : "Open"}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <Button size="lg" className="mt-6 w-full" loading={busy === "admin"} onClick={() => run("admin", () => backend().demoStaffSignIn("admin"))}>
+          Continue as park admin
+        </Button>
       </Container>
     );
   }
 
+  const passwordForm = (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void run("password", () => backend().signInWithPassword(email.trim(), password));
+      }}
+    >
+      <Field label={want === "admin" ? "Email" : "Stall login email"} htmlFor="staff-email">
+        <input id="staff-email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
+      </Field>
+      <Field label="Password" htmlFor="staff-password" error={error}>
+        <input
+          id="staff-password"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputClass}
+        />
+      </Field>
+      <Button type="submit" size="lg" className="w-full" loading={busy === "password"}>
+        Sign in
+      </Button>
+    </form>
+  );
+
   return (
     <Container className="max-w-md py-10">
       <h1 className="text-title">{want === "admin" ? "Admin sign in" : "Stall sign in"}</h1>
-      <p className="mt-2 text-ink-700">Use the Google account or the email and password the park set up for you.</p>
-      <GoogleSignInButton area="staff" returnTo={want === "admin" ? "/admin" : "/partner"} className="mt-6" />
-      <div className="my-6 flex items-center gap-3 text-small font-semibold text-ink-500" role="separator">
-        <span className="h-px flex-1 bg-line" />
-        or with email and password
-        <span className="h-px flex-1 bg-line" />
-      </div>
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run("password", () => backend().signInWithPassword(email.trim(), password));
-        }}
-      >
-        <Field label="Email" htmlFor="staff-email">
-          <input id="staff-email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
-        </Field>
-        <Field label="Password" htmlFor="staff-password" error={error}>
-          <input
-            id="staff-password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
-          />
-        </Field>
-        <Button type="submit" size="lg" className="w-full" loading={busy === "password"}>
-          Sign in
-        </Button>
-      </form>
+      <p className="mt-2 text-ink-700">
+        {want === "admin"
+          ? "Use the Google account or the email and password of the park admin."
+          : "Use your stall's own login. It opens your stall only: your orders, your menu, your open and closed switch."}
+      </p>
+      {isDemo ? (
+        <>
+          <Notice tone="warn" className="mt-5">
+            Demo: the park admin sets each stall&apos;s login in Admin → Stalls → Stall login. It works in this browser only.
+          </Notice>
+          <div className="mt-6">{passwordForm}</div>
+        </>
+      ) : (
+        <>
+          <GoogleSignInButton area="staff" returnTo={want === "admin" ? "/admin" : "/partner"} className="mt-6" />
+          <div className="my-6 flex items-center gap-3 text-small font-semibold text-ink-500" role="separator">
+            <span className="h-px flex-1 bg-line" />
+            or with email and password
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          {passwordForm}
+        </>
+      )}
     </Container>
   );
 }

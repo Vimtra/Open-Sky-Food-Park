@@ -6,6 +6,7 @@ import seed from "@/data/catalog.json";
 import { computeBill } from "../format";
 import type {
   Catalog,
+  Coupon,
   Order,
   OrderItem,
   Profile,
@@ -17,12 +18,14 @@ import type {
 } from "../types";
 import { slugify, type Area, type Backend, type Unsubscribe } from "./types";
 
-type Topic = "catalog" | "orders" | "session" | "support";
+type Topic = "catalog" | "orders" | "session" | "support" | "coupons";
 
 const K = {
   catalog: "osfp.demo.catalog",
   orders: "osfp.demo.orders",
   support: "osfp.demo.support",
+  coupons: "osfp.demo.coupons",
+  stallLogins: "osfp.demo.stall-logins",
   session: (area: Area) => `osfp.demo.session.${area}`,
 };
 
@@ -52,7 +55,7 @@ const fail = (code: string): never => {
 };
 
 export function createDemoBackend(): Backend {
-  const listeners: Record<Topic, Set<() => void>> = { catalog: new Set(), orders: new Set(), session: new Set(), support: new Set() };
+  const listeners: Record<Topic, Set<() => void>> = { catalog: new Set(), orders: new Set(), session: new Set(), support: new Set(), coupons: new Set() };
   const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("osfp-demo") : null;
 
   const emitLocal = (topic: Topic) => listeners[topic].forEach((cb) => cb());
@@ -111,6 +114,53 @@ export function createDemoBackend(): Backend {
     if (loadSession("staff")?.profile.role !== "admin") fail("forbidden");
   };
 
+  // ---- coupons: same rules as _coupon_quote() in supabase/migrations/0005_coupons.sql
+  const loadCoupons = () => read<Coupon[]>(K.coupons, []);
+  const saveCoupons = (rows: Coupon[]) => {
+    write(K.coupons, rows);
+    emit("coupons");
+  };
+  const usedCount = (couponId: string, customerId?: string) =>
+    loadOrders().filter((o) => o.coupon_code && o.status !== "cancelled" && (o as Order & { coupon_id?: string }).coupon_id === couponId && (!customerId || o.customer_id === customerId)).length;
+
+  const quote = (code: string, customerId: string | null, items: { menu_item_id: string; qty: number }[]) => {
+    const catalog = loadCatalog();
+    if (!catalog.park.coupons_enabled) fail("coupons_disabled");
+    const c = loadCoupons().find((x) => x.code === code.trim().toUpperCase()) ?? fail("coupon_not_found");
+    if (!c.is_active) fail("coupon_inactive");
+    if (c.starts_at && Date.now() < new Date(c.starts_at).getTime()) fail("coupon_not_started");
+    if (c.ends_at && Date.now() >= new Date(c.ends_at).getTime()) fail("coupon_expired");
+    const eligible = items.reduce((n, l) => {
+      const m = catalog.menu_items.find((x) => x.id === l.menu_item_id);
+      return m && l.qty >= 1 && l.qty <= 50 && (!c.stall_id || m.stall_id === c.stall_id) ? n + m.price_cents * l.qty : n;
+    }, 0);
+    if (eligible === 0) fail("coupon_not_applicable");
+    if (eligible < c.min_order_cents) fail("coupon_min_order");
+    if (c.usage_limit != null && usedCount(c.id) >= c.usage_limit) fail("coupon_used_up");
+    if (c.per_customer_limit != null && customerId && usedCount(c.id, customerId) >= c.per_customer_limit) fail("coupon_already_used");
+    let discount = c.kind === "percent" ? Math.round((eligible * c.value) / 100) : c.value;
+    if (c.max_discount_cents != null) discount = Math.min(discount, c.max_discount_cents);
+    discount = Math.min(discount, eligible);
+    return { coupon: c, eligible, discount };
+  };
+
+  // ---- stall logins (demo): login email + password per stall, kept in this browser only.
+  // A real deployment uses Supabase Auth accounts instead (see /api/admin/stall-logins).
+  const loadLogins = () => read<Record<string, { login: string; hash: string }>>(K.stallLogins, {});
+  const hashPassword = (login: string, password: string) => {
+    // Demo only: a fast string hash so the password is not stored as typed. Not real security.
+    let h1 = 0xdeadbeef ^ password.length;
+    let h2 = 0x41c6ce57 ^ login.length;
+    for (const ch of `${login.toLowerCase()}:${password}`) {
+      const k = ch.charCodeAt(0);
+      h1 = Math.imul(h1 ^ k, 2654435761);
+      h2 = Math.imul(h2 ^ k, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  };
+
   const makeSession = (profile: Profile, stallIds: string[] = []): Session => ({
     user_id: profile.id,
     profile,
@@ -161,20 +211,25 @@ export function createDemoBackend(): Backend {
       saveSession(area, session);
     },
 
-    async signInWithPassword() {
-      throw new DemoError("Password sign-in needs the real backend. Use the demo buttons instead.");
+    async signInWithPassword(login, password) {
+      await sleep(300);
+      const wanted = login.trim().toLowerCase();
+      const entry = Object.entries(loadLogins()).find(([, v]) => v.login.toLowerCase() === wanted);
+      if (!entry || entry[1].hash !== hashPassword(entry[1].login, password)) fail("bad_login");
+      const [stallId, { login: email }] = entry!;
+      const stall = loadCatalog().stalls.find((s) => s.id === stallId);
+      const session: Session = {
+        ...makeSession({ id: `demo-staff-${stallId}`, full_name: stall?.name ?? "Stall", phone: null, role: "stall_staff" }, [stallId]),
+        email,
+      };
+      saveSession("staff", session);
+      return session;
     },
 
-    async demoStaffSignIn(role, stallId) {
+    async demoStaffSignIn() {
       await sleep(200);
       const catalog = loadCatalog();
-      const session =
-        role === "admin"
-          ? makeSession({ id: "demo-admin", full_name: "Park admin", phone: null, role: "admin" }, catalog.stalls.map((s) => s.id))
-          : makeSession(
-              { id: `demo-staff-${stallId}`, full_name: catalog.stalls.find((s) => s.id === stallId)?.name ?? "Stall", phone: null, role: "stall_staff" },
-              stallId ? [stallId] : [],
-            );
+      const session = makeSession({ id: "demo-admin", full_name: "Park admin", phone: null, role: "admin" }, catalog.stalls.map((s) => s.id));
       saveSession("staff", session);
       return session;
     },
@@ -214,7 +269,8 @@ export function createDemoBackend(): Backend {
       });
 
       const itemTotal = lines.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
-      const bill = computeBill(itemTotal, catalog.park, Math.max(0, input.tip_cents || 0));
+      const applied = input.coupon_code?.trim() ? quote(input.coupon_code, session.user_id, input.items) : null;
+      const bill = computeBill(itemTotal, catalog.park, Math.max(0, input.tip_cents || 0), applied?.discount ?? 0);
       const online = input.payment_method === "online";
       const orders = loadOrders();
       const orderId = uid();
@@ -225,12 +281,21 @@ export function createDemoBackend(): Backend {
 
       const stallIds = [...new Set(lines.map((l) => l.stall.id))].sort();
       let taxLeft = bill.tax_cents;
+      let discountLeft = bill.discount_cents;
+      const scope = applied?.coupon.stall_id ?? null;
       const stallOrders: StallOrder[] = stallIds.map((stallId, stallNo) => {
         const mine = lines.filter((l) => l.stall.id === stallId);
         const subtotal = mine.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
-        // Same split as place_order: the last stall takes the remainder so the shares add up.
-        const tax =
-          stallNo === stallIds.length - 1 ? taxLeft : Math.min(Math.round((subtotal * Number(catalog.park.tax_percent)) / 100), taxLeft);
+        // Same splits as place_order: by share of eligible dishes; the last stall takes the remainder.
+        const last = stallNo === stallIds.length - 1;
+        const discount =
+          !applied || (scope && scope !== stallId)
+            ? 0
+            : last || scope
+              ? discountLeft
+              : Math.min(Math.round((bill.discount_cents * subtotal) / Math.max(applied.eligible, 1)), discountLeft);
+        discountLeft -= discount;
+        const tax = last ? taxLeft : Math.min(Math.round(((subtotal - discount) * Number(catalog.park.tax_percent)) / 100), taxLeft);
         taxLeft -= tax;
         const stall = mine[0].stall;
         const lastToken = Math.max(
@@ -258,6 +323,7 @@ export function createDemoBackend(): Backend {
           token_no: lastToken + 1,
           status: online ? "pending" : "placed",
           subtotal_cents: subtotal,
+          discount_cents: discount,
           tax_cents: tax,
           created_at: created,
           placed_at: online ? null : created,
@@ -286,6 +352,8 @@ export function createDemoBackend(): Backend {
         table_no: table,
         note: input.note?.trim() || null,
         ...bill,
+        coupon_code: applied?.coupon.code ?? null,
+        ...(applied ? { coupon_id: applied.coupon.id } : {}),
         payment_method: input.payment_method,
         payment_status: "unpaid",
         status: online ? "awaiting_payment" : "active",
@@ -294,7 +362,7 @@ export function createDemoBackend(): Backend {
       };
       saveOrders([order, ...orders]);
       if (!session.profile.full_name) saveSession("customer", { ...session, profile: { ...session.profile, full_name: name } });
-      return { order_id: orderId, order_no: orderNo, total_cents: bill.total_cents };
+      return { order_id: orderId, order_no: orderNo, total_cents: bill.total_cents, discount_cents: bill.discount_cents };
     },
 
     async listMyOrders() {
@@ -593,13 +661,99 @@ export function createDemoBackend(): Backend {
 
     onSupportChange: (cb) => subscribe("support", cb),
 
+    // ---------------------------------------------------------------- coupons
+    async listOffers() {
+      const nowMs = Date.now();
+      return loadCoupons().filter((c) => c.is_active && c.show_in_app && (!c.ends_at || new Date(c.ends_at).getTime() > nowMs));
+    },
+
+    async quoteCoupon(code, items) {
+      await sleep(250);
+      const { coupon, discount } = quote(code, loadSession("customer")?.user_id ?? null, items);
+      return { code: coupon.code, title: coupon.title, stall_id: coupon.stall_id, discount_cents: discount };
+    },
+
+    async listCoupons() {
+      requireAdmin();
+      return loadCoupons()
+        .map((c) => ({ ...c, used: usedCount(c.id) }))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+
+    async saveCoupon(row) {
+      requireAdmin();
+      const code = row.code.trim().toUpperCase();
+      if (!/^[A-Z0-9][A-Z0-9_-]{2,23}$/.test(code)) fail("Codes are 3–24 letters, digits, - or _.");
+      const all = loadCoupons();
+      if (all.some((c) => c.code === code && c.id !== row.id)) fail("That code already exists.");
+      const existing = row.id ? all.find((c) => c.id === row.id) : undefined;
+      if (existing) Object.assign(existing, row, { code });
+      else
+        all.push({
+          id: uid(),
+          description: null,
+          min_order_cents: 0,
+          max_discount_cents: null,
+          stall_id: null,
+          starts_at: null,
+          ends_at: null,
+          usage_limit: null,
+          per_customer_limit: null,
+          is_active: true,
+          show_in_app: true,
+          created_at: now(),
+          ...row,
+          code,
+        });
+      saveCoupons(all);
+    },
+
+    async deleteCoupon(id) {
+      requireAdmin();
+      saveCoupons(loadCoupons().filter((c) => c.id !== id));
+    },
+
+    // ---------------------------------------------------------------- photos
+    async uploadImage(file) {
+      requireAdmin();
+      // Demo: keep the (already resized) photo in this browser as a data URL.
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new DemoError("Could not read that photo."));
+        reader.readAsDataURL(file);
+      });
+    },
+
+    // ---------------------------------------------------------------- stall logins
+    async listStallLogins() {
+      requireAdmin();
+      const logins = loadLogins();
+      return loadCatalog().stalls.map((s) => ({ stall_id: s.id, login: logins[s.id]?.login ?? null }));
+    },
+
+    async setStallLogin(stallId, login, password) {
+      requireAdmin();
+      const email = login.trim().toLowerCase();
+      const logins = loadLogins();
+      if (Object.entries(logins).some(([id, v]) => id !== stallId && v.login.toLowerCase() === email)) fail("login_taken");
+      logins[stallId] = { login: email, hash: hashPassword(email, password) };
+      write(K.stallLogins, logins);
+      // Anyone signed in as this stall with the old login is signed out.
+      const current = loadSession("staff");
+      if (current?.profile.role === "stall_staff" && current.staff_stall_ids.includes(stallId) && current.email !== email) saveSession("staff", null);
+    },
+
     async resetDemo() {
       localStorage.removeItem(K.catalog);
       localStorage.removeItem(K.orders);
       localStorage.removeItem(K.support);
+      localStorage.removeItem(K.coupons);
+      localStorage.removeItem(K.stallLogins);
       emit("catalog");
       emit("orders");
       emit("support");
+      emit("coupons");
     },
   };
 }

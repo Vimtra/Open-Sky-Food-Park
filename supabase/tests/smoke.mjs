@@ -259,6 +259,70 @@ await db.query("update public.park_settings set contact_email = 'hello@example.c
 await as("anon");
 check("park contact fields are public", (await one("select contact_email from public.park_settings where id = 1")).contact_email === "hello@example.com");
 
+// ---- coupons (0005_coupons.sql)
+await as("authenticated", admin);
+await db.query(`insert into public.coupons (code, title, kind, value, min_order_cents, max_discount_cents) values ('SAVE10', '10% off', 'percent', 10, 1000, 300)`);
+await db.query(`insert into public.coupons (code, title, kind, value, stall_id, per_customer_limit) values ('SWEET2', '$2 off desserts', 'amount', 200, 'desi-desserts', 1)`);
+await db.query(`insert into public.coupons (code, title, kind, value, show_in_app) values ('SECRET5', 'Staff thanks', 'amount', 500, false)`);
+await db.query(`insert into public.coupons (code, title, kind, value, ends_at) values ('OLD', 'Expired', 'amount', 100, now() - interval '1 day')`);
+await db.query(`insert into public.coupons (code, title, kind, value, usage_limit) values ('ONCE', 'First order only', 'amount', 100, 1)`);
+const park = await one("select tax_percent::float as tax from public.park_settings where id = 1");
+
+await as("anon");
+const listed = (await rows("select code from public.coupons order by code")).map((r) => r.code);
+check("visitors see listed coupons only", listed.includes("SAVE10") && listed.includes("SWEET2") && !listed.includes("SECRET5") && !listed.includes("OLD"), listed.join(","));
+check("visitors cannot create coupons", /permission denied|row-level security/.test((await fails(`insert into public.coupons (code, title, kind, value) values ('HACK', 'x', 'amount', 9999)`)) ?? ""));
+
+await as("authenticated", customer);
+const cartItems = JSON.parse(payload()).items;
+const prices = Object.fromEntries((await rows("select id, price_cents from public.menu_items")).map((r) => [r.id, r.price_cents]));
+const itemTotal = cartItems.reduce((n, l) => n + prices[l.menu_item_id] * l.qty, 0);
+const quote = (await one("select public.quote_coupon('save10', $1::jsonb) as q", [JSON.stringify(cartItems)])).q;
+check("quote: code is case-insensitive, percent capped at the maximum", quote.code === "SAVE10" && quote.discount_cents === Math.min(Math.round(itemTotal * 0.1), 300), JSON.stringify(quote));
+check("hidden code still works when typed", (await one("select public.quote_coupon('SECRET5', $1::jsonb) as q", [JSON.stringify(cartItems)])).q.discount_cents === 500);
+check("unknown code rejected", /coupon_not_found/.test((await fails("select public.quote_coupon('NOPE', $1::jsonb)", [JSON.stringify(cartItems)])) ?? ""));
+check("expired code rejected", /coupon_expired/.test((await fails("select public.quote_coupon('OLD', $1::jsonb)", [JSON.stringify(cartItems)])) ?? ""));
+check("minimum order enforced", /coupon_min_order/.test((await fails("select public.quote_coupon('SAVE10', $1::jsonb)", [JSON.stringify([{ menu_item_id: PULKA, qty: 1 }])])) ?? ""));
+check("truck-only coupon needs that truck's dishes", /coupon_not_applicable/.test((await fails("select public.quote_coupon('SWEET2', $1::jsonb)", [JSON.stringify([{ menu_item_id: PULKA, qty: 2 }])])) ?? ""));
+
+const withCoupon = (await one("select public.place_order($1::jsonb) as r", [payload({ coupon_code: "SAVE10" })])).r;
+const co = await one("select * from public.orders where id = $1", [withCoupon.order_id]);
+const coStalls = await rows("select stall_id, subtotal_cents, discount_cents, tax_cents from public.stall_orders where order_id = $1", [withCoupon.order_id]);
+const expectDiscount = Math.min(Math.round(itemTotal * 0.1), 300);
+const expectTax = Math.round(((itemTotal - expectDiscount) * park.tax) / 100);
+check(
+  "order with coupon: discount before tax, totals add up",
+  co.coupon_code === "SAVE10" && co.discount_cents === expectDiscount && co.tax_cents === expectTax && co.total_cents === itemTotal - expectDiscount + expectTax,
+  JSON.stringify({ d: co.discount_cents, t: co.tax_cents, total: co.total_cents, expectDiscount, expectTax }),
+);
+check(
+  "stall shares of discount and tax add up to the order's",
+  coStalls.reduce((n, s) => n + s.discount_cents, 0) === co.discount_cents && coStalls.reduce((n, s) => n + s.tax_cents, 0) === co.tax_cents,
+  JSON.stringify(coStalls),
+);
+
+const sweet = (await one("select public.place_order($1::jsonb) as r", [payload({ coupon_code: "SWEET2" })])).r;
+const sweetStalls = await rows("select stall_id, discount_cents from public.stall_orders where order_id = $1 order by stall_id", [sweet.order_id]);
+check(
+  "truck-only coupon discounts only that truck's part",
+  sweetStalls.find((s) => s.stall_id === "desi-desserts").discount_cents === 200 && sweetStalls.find((s) => s.stall_id === "pandemkodi-dhaba").discount_cents === 0,
+  JSON.stringify(sweetStalls),
+);
+check("per-customer limit enforced", /coupon_already_used/.test((await fails("select public.place_order($1::jsonb)", [payload({ coupon_code: "SWEET2" })])) ?? ""));
+
+await db.query("select public.place_order($1::jsonb)", [payload({ coupon_code: "ONCE" })]);
+await as("authenticated", stranger);
+check("total usage limit enforced across customers", /coupon_used_up/.test((await fails("select public.place_order($1::jsonb)", [payload({ coupon_code: "ONCE", customer_name: "Other" })])) ?? ""));
+
+await as("authenticated", admin);
+await db.query("update public.park_settings set coupons_enabled = false where id = 1");
+await as("authenticated", customer);
+check("master switch turns coupons off", /coupons_disabled/.test((await fails("select public.quote_coupon('SAVE10', $1::jsonb)", [JSON.stringify(cartItems)])) ?? ""));
+const plain = (await one("select public.place_order($1::jsonb) as r", [payload()])).r;
+check("orders without a code still work with coupons off", (await one("select discount_cents from public.orders where id = $1", [plain.order_id])).discount_cents === 0);
+await as("authenticated", admin);
+await db.query("update public.park_settings set coupons_enabled = true where id = 1");
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map((f) => ` - ${f}`).join("\n"));

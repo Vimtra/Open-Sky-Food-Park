@@ -16,6 +16,8 @@ Allow about an hour. You need your own accounts at supabase.com, vercel.com and 
 
 1. Create a project at supabase.com (region: West US, close to Milpitas). Save the database password somewhere safe.
 2. **SQL Editor → New query**: paste all of `supabase/setup.sql` and run it. It creates the tables, security rules and order functions, and loads both trucks' menus.
+   - Already ran an older `setup.sql`? Run only the newer files from `supabase/migrations/` instead, in order (`0005_coupons.sql` adds coupons).
+   - Dish, logo and poster photos uploaded in the admin panel go to the Storage bucket `catalog`, which `setup.sql` creates.
 3. **Project Settings → API**: note the **Project URL**, the **anon public** key and the **service_role** key (secret).
 
 ## 2. Google sign-in (customers, staff and admin)
@@ -73,7 +75,7 @@ Sign out and in again at `/admin`.
 
 **Admin with email and password instead of Google:** run the same `staff:add` command with an email that has never signed in. It asks you to choose a password and creates the account.
 
-**Stall staff:** each truck signs in at `/partner` (Google, or an email + password you create):
+**Stall staff:** each truck gets its own login, and sees only its own orders and dishes. Easiest: **Admin → Stalls → Stall login**, type the truck's email and a password (8+ characters). This needs `SUPABASE_SERVICE_ROLE_KEY` set in Vercel. Setting a new login for a truck replaces its old one. Or from the command line:
 
 ```bash
 npm.cmd run staff:add -- --email cook@example.com --role stall_staff --stall pandemkodi-dhaba

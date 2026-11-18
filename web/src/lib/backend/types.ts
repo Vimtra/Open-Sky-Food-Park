@@ -1,6 +1,9 @@
 import type {
   Banner,
   Catalog,
+  Coupon,
+  CouponQuote,
+  CouponWithUse,
   MenuCategory,
   MenuItem,
   Order,
@@ -9,6 +12,7 @@ import type {
   PlaceOrderResult,
   Session,
   Stall,
+  StallLogin,
   StallTicket,
   SupportRequest,
   SupportRequestInput,
@@ -34,6 +38,7 @@ export type StallInput = Partial<Stall> & Pick<Stall, "name">;
 export type CategoryInput = Partial<MenuCategory> & Pick<MenuCategory, "stall_id" | "name">;
 export type ItemInput = Partial<MenuItem> & Pick<MenuItem, "stall_id" | "category_id" | "name" | "price_cents">;
 export type BannerInput = Partial<Banner> & Pick<Banner, "title">;
+export type CouponInput = Partial<Coupon> & Pick<Coupon, "code" | "title" | "kind" | "value">;
 
 /**
  * Everything the UI needs from the data layer. Two implementations:
@@ -58,8 +63,8 @@ export interface Backend {
   requestOtp(phone: string): Promise<void>;
   verifyOtp(phone: string, code: string): Promise<Session>;
   signInWithPassword(email: string, password: string): Promise<Session>;
-  /** Demo mode only: step into a stall or the admin panel without credentials. */
-  demoStaffSignIn(role: "stall_staff" | "admin", stallId?: string): Promise<Session>;
+  /** Demo mode only: step into the admin panel without credentials. Stalls always sign in with their own login. */
+  demoStaffSignIn(role: "admin"): Promise<Session>;
   updateProfile(area: Area, patch: { full_name: string }): Promise<void>;
   signOut(area: Area): Promise<void>;
 
@@ -79,12 +84,26 @@ export interface Backend {
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   setStallOpen(stallId: string, open: boolean): Promise<void>;
 
+  // coupons
+  /** Coupons the park lists under "Offers" (active, listed, not expired). */
+  listOffers(): Promise<Coupon[]>;
+  /** Checks a code against the cart and returns the discount, or throws a coupon_* error. */
+  quoteCoupon(code: string, items: { menu_item_id: string; qty: number }[]): Promise<CouponQuote>;
+
   // help & support
   /** Sends a Contact us message. Works signed in or not. */
   submitSupportRequest(input: SupportRequestInput): Promise<{ id: string; ref_no: string }>;
 
   // admin
   listAllOrders(): Promise<Order[]>;
+  listCoupons(): Promise<CouponWithUse[]>;
+  saveCoupon(row: CouponInput): Promise<void>;
+  deleteCoupon(id: string): Promise<void>;
+  /** Uploads a photo (already resized in the browser) and returns the URL to store. */
+  uploadImage(file: Blob, folder: "dishes" | "stalls" | "promos"): Promise<string>;
+  /** One login per stall: stall staff sign in at /partner with it and see only their stall. */
+  listStallLogins(): Promise<StallLogin[]>;
+  setStallLogin(stallId: string, login: string, password: string): Promise<void>;
   listSupportRequests(): Promise<SupportRequest[]>;
   setSupportRequestStatus(id: string, status: SupportStatus): Promise<void>;
   onSupportChange(cb: () => void): Unsubscribe;

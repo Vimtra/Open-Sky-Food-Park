@@ -43,7 +43,8 @@ function TicketCard({ ticket, lane, now, onMove }: { ticket: StallTicket; lane: 
   const waited = minutesSince(ticket.placed_at ?? ticket.created_at, now);
   const table = ticket.order.fulfilment === "table";
   const collect = ticket.order.payment_method === "pay_at_stall" && ticket.order.payment_status !== "paid";
-  const due = ticket.subtotal_cents + (ticket.tax_cents ?? 0);
+  // What this stall collects: its dishes, minus its share of any coupon, plus its share of tax.
+  const due = ticket.subtotal_cents - (ticket.discount_cents ?? 0) + (ticket.tax_cents ?? 0);
 
   const move = async (status: TicketStatus) => {
     setBusy(status);
@@ -89,7 +90,9 @@ function TicketCard({ ticket, lane, now, onMove }: { ticket: StallTicket; lane: 
       )}
 
       <p className={cn("mt-3 text-label font-bold tabular-nums", collect ? "text-chili-600" : "text-leaf-700")}>
-        {collect ? `Collect ${money(due)} from the customer${ticket.tax_cents ? " (tax included)" : ""}` : `Paid online · ${money(due)}`}
+        {collect
+          ? `Collect ${money(due)} from the customer${ticket.discount_cents ? " (coupon applied)" : ticket.tax_cents ? " (tax included)" : ""}`
+          : `Paid online · ${money(due)}`}
       </p>
 
       <div className="mt-3 flex gap-2">
@@ -249,7 +252,7 @@ function Board({ stallId }: { stallId: string }) {
                   {t.order.customer_name} · {plural(t.order_items.reduce((n, i) => n + i.qty, 0), "item")}
                 </span>
                 <span className={cn("font-bold", t.status === "cancelled" ? "text-chili-600" : "text-ink-500")}>{t.status === "cancelled" ? "Cancelled" : "Handed over"}</span>
-                <span className="w-16 text-right tabular-nums">{money(t.subtotal_cents + (t.tax_cents ?? 0))}</span>
+                <span className="w-16 text-right tabular-nums">{money(t.subtotal_cents - (t.discount_cents ?? 0) + (t.tax_cents ?? 0))}</span>
               </li>
             ))}
           </ul>

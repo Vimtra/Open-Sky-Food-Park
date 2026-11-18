@@ -28,6 +28,8 @@ export interface Park {
   contact_phone: string | null;
   /** Free text, e.g. "Thu–Sun, 5–11 PM". */
   hours_text: string | null;
+  /** Master switch for the coupon box at checkout. */
+  coupons_enabled: boolean;
 }
 
 export interface Stall {
@@ -123,6 +125,8 @@ export interface StallOrder {
   token_no: number;
   status: TicketStatus;
   subtotal_cents: number;
+  /** This stall's share of the order's coupon discount. The shares add up to `orders.discount_cents`. */
+  discount_cents: number;
   /** This stall's share of the order's tax. The shares add up to `orders.tax_cents`. */
   tax_cents: number;
   created_at: string;
@@ -144,6 +148,10 @@ export interface Order {
   table_no: string | null;
   note: string | null;
   item_total_cents: number;
+  /** Coupon applied at checkout, if any, and the amount it took off the item total (before tax). */
+  coupon_id?: string | null;
+  coupon_code: string | null;
+  discount_cents: number;
   tax_cents: number;
   service_fee_cents: number;
   tip_cents: number;
@@ -186,6 +194,7 @@ export interface PlaceOrderInput {
   note: string | null;
   payment_method: PaymentMethod;
   tip_cents: number;
+  coupon_code?: string | null;
   items: { menu_item_id: string; qty: number; note?: string | null }[];
 }
 
@@ -219,4 +228,47 @@ export interface SupportRequestInput {
   topic: SupportTopic;
   order_no: string | null;
   message: string;
+}
+
+export type CouponKind = "percent" | "amount";
+
+export interface Coupon {
+  id: string;
+  /** Upper case, 3–24 letters, digits, - or _. */
+  code: string;
+  title: string;
+  description: string | null;
+  kind: CouponKind;
+  /** percent: 1–100 · amount: cents off. */
+  value: number;
+  min_order_cents: number;
+  max_discount_cents: number | null;
+  /** null = every truck; otherwise only that truck's dishes count and get the discount. */
+  stall_id: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  usage_limit: number | null;
+  per_customer_limit: number | null;
+  is_active: boolean;
+  /** Listed under "Offers" at checkout. Hidden codes work only when typed in. */
+  show_in_app: boolean;
+  created_at: string;
+}
+
+/** Admin view of a coupon: how many orders used it (cancelled orders do not count). */
+export interface CouponWithUse extends Coupon {
+  used: number;
+}
+
+export interface CouponQuote {
+  code: string;
+  title: string;
+  stall_id: string | null;
+  discount_cents: number;
+}
+
+/** The sign-in a stall's staff use on /partner. One per stall. */
+export interface StallLogin {
+  stall_id: string;
+  login: string | null;
 }

@@ -6,7 +6,9 @@ import { Armchair, Banknote, CreditCard, Plus, ShoppingBag, Ticket, Trash2 } fro
 import { useState, type ReactNode } from "react";
 import { backend, formatPhone } from "@/lib/backend";
 import { useCart, useCartView } from "@/lib/cart";
+import useSWR from "swr";
 import { computeBill, friendlyError, imageSrc, money, plural } from "@/lib/format";
+import { CouponBox } from "./coupon-box";
 import { useCatalog, useSession } from "@/lib/hooks";
 import type { Fulfilment, PaymentMethod } from "@/lib/types";
 import { AddButton } from "./add-button";
@@ -53,9 +55,9 @@ function BillRows({ rows, total }: { rows: [string, number][]; total: number }) 
   return (
     <dl className="space-y-2 text-label font-medium text-ink-700">
       {rows.map(([label, cents]) => (
-        <div key={label} className="flex justify-between gap-4">
+        <div key={label} className={cents < 0 ? "flex justify-between gap-4 font-bold text-leaf-700" : "flex justify-between gap-4"}>
           <dt>{label}</dt>
-          <dd className="tabular-nums">{money(cents)}</dd>
+          <dd className="tabular-nums">{cents < 0 ? `−${money(-cents)}` : money(cents)}</dd>
         </div>
       ))}
       <div className="flex justify-between gap-4 border-t border-line pt-3 text-body font-extrabold text-ink-900">
@@ -85,6 +87,25 @@ export function CartScreen() {
     if (!name) setName(profileName);
   }
 
+  // Coupon: kept by code and re-checked against the server whenever the cart changes.
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const couponItems = cart.groups.flatMap((g) => g.lines.filter((l) => l.orderable).map((l) => ({ menu_item_id: l.item.id, qty: l.qty })));
+  const couponKey = couponCode && couponItems.length ? ["coupon", couponCode, JSON.stringify(couponItems)] : null;
+  const { data: couponQuote, error: couponErr, isValidating: couponChecking } = useSWR(couponKey, () => backend().quoteCoupon(couponCode!, couponItems), {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const couponError = couponErr ? friendlyError(couponErr) : null;
+  const applyCoupon = async (code: string) => {
+    try {
+      await backend().quoteCoupon(code, couponItems);
+      setCouponCode(code);
+      return null;
+    } catch (err) {
+      return friendlyError(err);
+    }
+  };
+
   const park = index?.catalog.park;
   const tableAllowed = park?.table_service_enabled ?? true;
   const effectiveFulfilment: Fulfilment = tableAllowed ? fulfilment : "pickup";
@@ -112,8 +133,10 @@ export function CartScreen() {
     );
   }
 
-  const bill = computeBill(cart.item_total_cents, park);
+  const discount = couponCode && couponQuote && !couponError ? couponQuote.discount_cents : 0;
+  const bill = computeBill(cart.item_total_cents, park, 0, discount);
   const billRows: [string, number][] = [[`Item total (${plural(cart.count, "item")})`, bill.item_total_cents]];
+  if (bill.discount_cents > 0) billRows.push([`Coupon ${couponQuote?.code ?? ""}`, -bill.discount_cents]);
   if (bill.tax_cents > 0) billRows.push([`Sales tax (${park.tax_percent}%)`, bill.tax_cents]);
   if (bill.service_fee_cents > 0) billRows.push(["Service fee", bill.service_fee_cents]);
 
@@ -138,6 +161,7 @@ export function CartScreen() {
         note: note.trim() || null,
         payment_method: paymentMethod,
         tip_cents: 0,
+        coupon_code: discount > 0 ? couponCode : null,
         items: cart.groups.flatMap((g) => g.lines.map((l) => ({ menu_item_id: l.item.id, qty: l.qty }))),
       });
       clear();
@@ -337,6 +361,18 @@ export function CartScreen() {
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-lg border border-line p-5">
+            {park.coupons_enabled && (
+              <div className="mb-5 border-b border-line pb-5">
+                <CouponBox
+                  code={couponCode}
+                  quote={couponQuote}
+                  quoteError={couponError}
+                  checking={couponChecking && !couponQuote}
+                  onApply={applyCoupon}
+                  onRemove={() => setCouponCode(null)}
+                />
+              </div>
+            )}
             <h2 className="text-subheading font-extrabold">Bill details</h2>
             <div className="mt-4">
               <BillRows rows={billRows} total={bill.total_cents} />

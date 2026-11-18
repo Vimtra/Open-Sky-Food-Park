@@ -1,4 +1,4 @@
-import type { Order, Park, StallOrder, TicketStatus } from "./types";
+import type { Coupon, Order, Park, StallOrder, TicketStatus } from "./types";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -7,6 +7,7 @@ export const money = (cents: number) => usd.format(cents / 100);
 
 export interface Bill {
   item_total_cents: number;
+  discount_cents: number;
   tax_cents: number;
   service_fee_cents: number;
   tip_cents: number;
@@ -14,21 +15,40 @@ export interface Bill {
 }
 
 /** Client-side preview. Must match place_order in supabase/migrations/0001_init.sql. */
-export function computeBill(itemTotalCents: number, park: Pick<Park, "tax_percent" | "service_fee_cents">, tipCents = 0): Bill {
-  const tax = Math.round((itemTotalCents * Number(park.tax_percent)) / 100);
+export function computeBill(itemTotalCents: number, park: Pick<Park, "tax_percent" | "service_fee_cents">, tipCents = 0, discountCents = 0): Bill {
+  // The coupon comes off the item total before tax, as in place_order (0005_coupons.sql).
+  const discount = Math.min(Math.max(0, discountCents), itemTotalCents);
+  const tax = Math.round(((itemTotalCents - discount) * Number(park.tax_percent)) / 100);
   return {
     item_total_cents: itemTotalCents,
+    discount_cents: discount,
     tax_cents: tax,
     service_fee_cents: park.service_fee_cents,
     tip_cents: tipCents,
-    total_cents: itemTotalCents + tax + park.service_fee_cents + tipCents,
+    total_cents: itemTotalCents - discount + tax + park.service_fee_cents + tipCents,
   };
+}
+
+/** "10% off, up to $3.00" · "$2.00 off" */
+export function couponValueLabel(c: Pick<Coupon, "kind" | "value" | "max_discount_cents">): string {
+  if (c.kind === "percent") return `${c.value}% off${c.max_discount_cents ? `, up to ${money(c.max_discount_cents)}` : ""}`;
+  return `${money(c.value)} off`;
+}
+
+/** The status the admin sees: Active, Scheduled, Expired, Used up or Off. */
+export function couponStatus(c: Pick<Coupon, "is_active" | "starts_at" | "ends_at" | "usage_limit"> & { used?: number }, now = Date.now()) {
+  if (!c.is_active) return "Off" as const;
+  if (c.ends_at && new Date(c.ends_at).getTime() <= now) return "Expired" as const;
+  if (c.starts_at && new Date(c.starts_at).getTime() > now) return "Scheduled" as const;
+  if (c.usage_limit != null && (c.used ?? 0) >= c.usage_limit) return "Used up" as const;
+  return "Active" as const;
 }
 
 /** Local catalog images are stored as relative keys ("img/..."); uploaded ones are absolute URLs. */
 export function imageSrc(url: string | null | undefined): string | null {
   if (!url) return null;
-  return /^https?:\/\//.test(url) ? url : `/${url.replace(/^\/+/, "")}`;
+  // Uploaded photos are full URLs (Supabase Storage) or, in demo mode, data URLs kept in the browser.
+  return /^(https?:\/\/|data:|blob:)/.test(url) ? url : `/${url.replace(/^\/+/, "")}`;
 }
 
 /** "Serves 4 | Paneer in a creamy tomato-butter gravy." or "12 oz | Chilled milk with rose syrup." Either half may be missing. */
@@ -90,6 +110,17 @@ export const isOrderLive = (o: Pick<Order, "status">) => o.status === "active" |
 
 /** Friendly text for the error codes raised by the database functions. */
 const errorText: Record<string, string> = {
+  coupons_disabled: "Coupons are switched off right now.",
+  coupon_not_found: "That code doesn't exist. Check the spelling.",
+  coupon_inactive: "That coupon is switched off.",
+  coupon_not_started: "That coupon hasn't started yet.",
+  coupon_expired: "That coupon has expired.",
+  coupon_min_order: "Add a little more to use this coupon.",
+  coupon_not_applicable: "This coupon is for a truck that isn't in your cart.",
+  coupon_used_up: "That coupon has been fully used.",
+  coupon_already_used: "You've already used this coupon.",
+  login_taken: "That login email is already used by another account.",
+  bad_login: "Wrong login or password.",
   contact_required: "Add an email or phone number so we can reply.",
   message_too_short: "Tell us a little more so we can help.",
   message_too_long: "That message is too long. Keep it under 2,000 characters.",

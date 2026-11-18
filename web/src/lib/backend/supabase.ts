@@ -2,7 +2,7 @@
 // Schema, security rules and the rpc functions called here live in supabase/migrations.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Catalog, Order, Park, Profile, Session, StallTicket, SupportRequest } from "../types";
+import type { Catalog, Coupon, CouponWithUse, Order, Park, Profile, Session, StallLogin, StallTicket, SupportRequest } from "../types";
 import { slugify, type Backend, type Unsubscribe } from "./types";
 
 const STALL_SUMMARY = "id,slug,name,location_label,logo_url,phone";
@@ -58,6 +58,21 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       );
     }
     return { user_id: user.id, profile, staff_stall_ids: stallIds, email: user.email ?? null };
+  };
+
+  /** Calls /api/admin/stall-logins as the signed-in admin. */
+  const adminApi = async (method: "GET" | "POST", body?: unknown) => {
+    const { data } = await db.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("sign_in_required");
+    const res = await fetch("/api/admin/stall-logins", {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error ?? "The server did not accept that.");
+    return json;
   };
 
   const requireSession = async () => {
@@ -267,6 +282,52 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     },
 
     onSupportChange: (cb) => watch(["support_requests"], cb),
+
+    // ---------------------------------------------------------------- coupons
+    async listOffers() {
+      const rows = unwrap(await db.from("coupons").select("*").eq("is_active", true).eq("show_in_app", true).order("created_at")) as Coupon[];
+      const nowMs = Date.now();
+      return rows.filter((c) => !c.ends_at || new Date(c.ends_at).getTime() > nowMs);
+    },
+
+    async quoteCoupon(code, items) {
+      return unwrap(await db.rpc("quote_coupon", { p_code: code, p_items: items }));
+    },
+
+    async listCoupons() {
+      const [coupons, uses] = await Promise.all([
+        db.from("coupons").select("*").order("created_at", { ascending: false }),
+        db.from("orders").select("coupon_id").not("coupon_id", "is", null).neq("status", "cancelled").limit(10000),
+      ]);
+      const count = new Map<string, number>();
+      for (const r of unwrap(uses) as { coupon_id: string }[]) count.set(r.coupon_id, (count.get(r.coupon_id) ?? 0) + 1);
+      return (unwrap(coupons) as Coupon[]).map((c) => ({ ...c, used: count.get(c.id) ?? 0 })) as CouponWithUse[];
+    },
+
+    async saveCoupon(row) {
+      await upsert("coupons", { ...row, code: row.code.trim().toUpperCase() });
+    },
+
+    async deleteCoupon(id) {
+      check(await db.from("coupons").delete().eq("id", id));
+    },
+
+    // ---------------------------------------------------------------- photos
+    async uploadImage(file, folder) {
+      const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+      check(await db.storage.from("catalog").upload(path, file, { contentType: file.type || "image/jpeg", cacheControl: "31536000", upsert: false }));
+      return db.storage.from("catalog").getPublicUrl(path).data.publicUrl;
+    },
+
+    // ---------------------------------------------------------------- stall logins (server route with the service key)
+    async listStallLogins() {
+      return (await adminApi("GET")) as StallLogin[];
+    },
+
+    async setStallLogin(stallId, login, password) {
+      await adminApi("POST", { stall_id: stallId, email: login, password });
+    },
 
     async resetDemo() {
       throw new Error("Nothing to reset: this is the live database.");

@@ -1,7 +1,8 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { KeyRound, Pencil, Plus } from "lucide-react";
+import { useState } from "react";
+import useSWR from "swr";
 import { backend, isDemo } from "@/lib/backend";
 import { dayAndTime, friendlyError, imageSrc, isOrderLive, money, plural } from "@/lib/format";
 import { useAllOrders, useCatalog, useSupportRequests, type CatalogIndex } from "@/lib/hooks";
@@ -9,84 +10,24 @@ import { useSession } from "@/lib/hooks";
 import type { Banner, Diet, MenuCategory, MenuItem, Park, Stall, SupportStatus } from "@/lib/types";
 import { supportTopics } from "./support-shared";
 import { StatusPill } from "./order-screen";
+import { CouponsTab } from "./admin-coupons";
+import { blankToNull, Check, ConfirmDelete, Select, Text, toCents, toDollars, type Run } from "./admin-kit";
+import { ImageUpload } from "./image-upload";
 import { StaffHeader, StaffSignIn } from "./staff-shell";
-import { Button, Chip, cn, Container, DietMark, Field, inputClass, Notice, Spinner, Switch } from "./ui";
+import { Button, Chip, cn, Container, DietMark, inputClass, Notice, Spinner, Switch } from "./ui";
 
-type Tab = "orders" | "messages" | "menu" | "stalls" | "promos" | "settings";
+type Tab = "orders" | "messages" | "menu" | "stalls" | "coupons" | "promos" | "settings";
 const tabs: [Tab, string][] = [
   ["orders", "Orders"],
   ["messages", "Messages"],
   ["menu", "Menus"],
   ["stalls", "Stalls"],
+  ["coupons", "Coupons"],
   ["promos", "Promos"],
   ["settings", "Settings"],
 ];
 
-/** Runs a save, reports failures, and refreshes the catalog afterwards. `done` is shown as a confirmation. */
-type Run = (fn: () => Promise<unknown>, done?: string) => Promise<boolean>;
 
-// ------------------------------------------------------------------ small form parts
-function Text({
-  label,
-  value,
-  onChange,
-  hint,
-  error,
-  ...rest
-}: { label: string; value: string; onChange: (v: string) => void; hint?: string; error?: string | null } & Omit<React.ComponentProps<"input">, "value" | "onChange">) {
-  const id = useId();
-  return (
-    <Field label={label} htmlFor={id} hint={hint} error={error}>
-      <input id={id} value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} {...rest} />
-    </Field>
-  );
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex min-h-11 items-center gap-2.5 text-label font-semibold">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="size-5 accent-[var(--color-leaf-600)]" />
-      {label}
-    </label>
-  );
-}
-
-function Select({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: ReactNode }) {
-  const id = useId();
-  return (
-    <Field label={label} htmlFor={id}>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
-        {children}
-      </select>
-    </Field>
-  );
-}
-
-function ConfirmDelete({ what, onDelete }: { what: string; onDelete: () => void }) {
-  const [asking, setAsking] = useState(false);
-  return asking ? (
-    <span className="flex items-center gap-2">
-      <Button variant="danger" onClick={onDelete}>
-        Delete {what}
-      </Button>
-      <Button variant="ghost" onClick={() => setAsking(false)}>
-        Keep
-      </Button>
-    </span>
-  ) : (
-    <Button variant="ghost" className="text-chili-600" onClick={() => setAsking(true)}>
-      <Trash2 className="size-4" aria-hidden />
-      Delete
-    </Button>
-  );
-}
-
-const toCents = (dollars: string) => {
-  const n = Number(dollars.replace(/[$,\s]/g, ""));
-  return Number.isFinite(n) && n >= 0 && dollars.trim() !== "" ? Math.round(n * 100) : null;
-};
-const toDollars = (cents: number) => (cents / 100).toFixed(2);
-const blankToNull = (s: string) => s.trim() || null;
 
 // ------------------------------------------------------------------ orders
 function OrdersTab() {
@@ -142,7 +83,14 @@ function OrdersTab() {
                   <td className="px-4 py-3 text-ink-700">
                     {o.payment_status === "paid" ? "Paid online" : o.payment_method === "online" ? "Awaiting payment" : "At the stall"}
                   </td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums">{money(o.total_cents)}</td>
+                  <td className="px-4 py-3 text-right font-bold tabular-nums">
+                    {money(o.total_cents)}
+                    {o.coupon_code && (
+                      <span className="block text-small font-medium text-leaf-700">
+                        {o.coupon_code} −{money(o.discount_cents)}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -229,7 +177,7 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
         </Select>
       </div>
       <div className="mt-4">
-        <Text label="Photo URL (optional)" value={image} onChange={setImage} placeholder="https://… or img/stall/dish.jpg" hint="Square photos work best." />
+        <ImageUpload label="Dish photo" value={image} onChange={setImage} folder="dishes" hint="Square photos look best. Big phone photos are shrunk before upload." />
       </div>
       <div className="mt-2 flex flex-wrap gap-x-6">
         <Check label="In stock" checked={available} onChange={setAvailable} />
@@ -436,10 +384,10 @@ function StallForm({ stall, run, onClose }: { stall: Stall | null; run: Run; onC
           inputMode="numeric"
           error={touched && !prepOk ? "Enter whole minutes between 1 and 240, or leave it empty." : null}
         />
-        <Text label="Logo image URL" value={f.logo_url} onChange={up("logo_url")} />
       </div>
-      <div className="mt-4">
-        <Text label="Cover photo URL" value={f.cover_url} onChange={up("cover_url")} hint="Wide photo, 3:2." />
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <ImageUpload label="Logo" value={f.logo_url} onChange={up("logo_url")} folder="stalls" shape="round" maxSide={600} />
+        <ImageUpload label="Cover photo" value={f.cover_url} onChange={up("cover_url")} folder="stalls" shape="wide" hint="A wide photo, about 3:2." />
       </div>
       <div className="mt-2">
         <Check label="Listed on the customer site and apps" checked={f.is_active} onChange={(v) => setF((s) => ({ ...s, is_active: v }))} />
@@ -459,11 +407,90 @@ function StallForm({ stall, run, onClose }: { stall: Stall | null; run: Run; onC
   );
 }
 
+/** One login per stall: the stall's staff sign in at /partner with it and see only their own stall. */
+function StallLogin({ stall, login, run, onSaved }: { stall: Stall; login: string | null | undefined; run: Run; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState(login ?? "");
+  const [password, setPassword] = useState("");
+  const [touched, setTouched] = useState(false);
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+  const passwordOk = password.length >= 8;
+
+  const save = async () => {
+    setTouched(true);
+    if (!emailOk || !passwordOk) return;
+    const ok = await run(
+      () => backend().setStallLogin(stall.id, email.trim(), password),
+      `${stall.name} can now sign in at /partner with ${email.trim().toLowerCase()}.`,
+    );
+    if (ok) {
+      setOpen(false);
+      setPassword("");
+      setTouched(false);
+      onSaved();
+    }
+  };
+
+  return (
+    <div className="basis-full border-t border-line pt-3">
+      {!open ? (
+        <div className="flex flex-wrap items-center gap-3 text-label">
+          <KeyRound className="size-4 text-ink-500" aria-hidden />
+          <span className="min-w-0 flex-1 font-medium text-ink-700">
+            Stall login:{" "}
+            {login === undefined ? "…" : login ? <strong className="text-ink-900">{login}</strong> : <span className="text-chili-600">not set, this stall can&apos;t sign in yet</span>}
+          </span>
+          <Button size="sm" variant="ghost" className="text-ember-700" onClick={() => setOpen(true)}>
+            {login ? "Change login or password" : "Set login"}
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <Text
+            label="Login email"
+            type="email"
+            autoComplete="off"
+            value={email}
+            onChange={setEmail}
+            placeholder="pandemkodi@example.com"
+            error={touched && !emailOk ? "Enter a valid email." : null}
+          />
+          <Text
+            label={login ? "New password" : "Password"}
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={setPassword}
+            error={touched && !passwordOk ? "At least 8 characters." : null}
+          />
+          <div className="flex gap-2 pb-0.5">
+            <Button className="h-12" onClick={save}>
+              Save
+            </Button>
+            <Button className="h-12" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+          <p className="text-small text-ink-500 sm:col-span-3">
+            Share these with {stall.name} only. Signing in at /partner opens just this stall: its orders, its menu stock and its open/closed switch.
+            Changing them signs out the old login.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StallsTab({ index, run }: { index: CatalogIndex; run: Run }) {
   const [editing, setEditing] = useState<string | null>(null);
   const stalls = [...index.catalog.stalls].sort((a, b) => a.sort_order - b.sort_order);
+  const { data: logins, mutate: reloadLogins } = useSWR("stall-logins", () => backend().listStallLogins());
+  const loginOf = (id: string) => (logins ? (logins.find((l) => l.stall_id === id)?.login ?? null) : undefined);
   return (
     <>
+      <p className="mb-4 max-w-prose text-ink-700">
+        Each stall signs in to its own dashboard at <strong>/partner</strong> with the login you set here, and only sees its own orders and dishes.
+      </p>
       <ul className="space-y-3">
         {stalls.map((s) =>
           editing === s.id ? (
@@ -487,6 +514,7 @@ function StallsTab({ index, run }: { index: CatalogIndex; run: Run }) {
                 <Pencil className="size-4" aria-hidden />
                 Edit
               </Button>
+              <StallLogin key={loginOf(s.id) ?? "none"} stall={s} login={loginOf(s.id)} run={run} onSaved={() => void reloadLogins()} />
             </li>
           ),
         )}
@@ -569,7 +597,7 @@ function PromosTab({ index, run }: { index: CatalogIndex; run: Run }) {
               </Select>
             </div>
             <div className="mt-4">
-              <Text label="Poster image URL" value={image} onChange={setImage} hint="Square poster, at least 800 px." />
+              <ImageUpload label="Poster" value={image} onChange={setImage} folder="promos" hint="A square poster works best." />
             </div>
             <div className="mt-4 flex gap-2">
               <Button onClick={add}>Add promo</Button>
@@ -694,6 +722,7 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
   const [hours, setHours] = useState(park.hours_text ?? "");
   const [ordering, setOrdering] = useState(park.ordering_enabled);
   const [tables, setTables] = useState(park.table_service_enabled);
+  const [coupons, setCoupons] = useState(park.coupons_enabled);
   const [touched, setTouched] = useState(false);
   const taxNum = Number(tax);
   const taxOk = tax.trim() !== "" && Number.isFinite(taxNum) && taxNum >= 0 && taxNum <= 30;
@@ -715,6 +744,7 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
           hours_text: blankToNull(hours),
           ordering_enabled: ordering,
           table_service_enabled: tables,
+          coupons_enabled: coupons,
         }),
       "Settings saved. Customers see the change on their next screen.",
     );
@@ -754,6 +784,7 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
       <div className="mt-3">
         <Check label="Take online orders" checked={ordering} onChange={setOrdering} />
         <Check label="Offer “bring it to my table”" checked={tables} onChange={setTables} />
+        <Check label="Accept coupon codes at checkout" checked={coupons} onChange={setCoupons} />
       </div>
       <div className="mt-4">
         <Button onClick={save}>Save settings</Button>
@@ -847,6 +878,7 @@ export function AdminScreen() {
             {tab === "messages" && <MessagesTab run={run} />}
             {tab === "menu" && <MenuTab index={index} run={run} />}
             {tab === "stalls" && <StallsTab index={index} run={run} />}
+            {tab === "coupons" && <CouponsTab index={index} run={run} couponsOn={index.catalog.park.coupons_enabled} />}
             {tab === "promos" && <PromosTab index={index} run={run} />}
             {tab === "settings" && <SettingsTab key={JSON.stringify(index.catalog.park)} park={index.catalog.park} run={run} />}
           </div>

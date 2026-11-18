@@ -92,7 +92,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | A3 | Database schema, security rules, server functions | A | done | `supabase/migrations/0001_init.sql`; `npm run db:test` passes 43 checks on in-memory Postgres, not yet run on a real Supabase project |
 | A4 | Web customer flow: home, stall menu, search, cart, checkout, order tracking, orders, sign-in | A | done | works end to end in demo mode (tested 2026-11-17); visuals now being redesigned by B on the owner's instruction; Supabase path written, not yet run against a real project |
 | A5 | Web stall dashboard | A | done | `/partner`: new / preparing / ready lanes, reject, sold-out switches, open/closed |
-| A6 | Web admin panel | A | done | `/admin`: orders, menus and prices, stalls, promos, settings. Not built yet: image upload (URL field only), assigning staff to stalls (done in SQL, see `web/README.md`) |
+| A6 | Web admin panel | A | done | `/admin`: orders, menus and prices, stalls, promos, settings, coupons, photo upload, one login per stall (v1.5, 2026-11-18) |
 | A7 | Stripe payment routes + webhook | A | blocked | code written (`web/src/app/api/payments/`), never run: needs Stripe test keys and a Supabase project from the owner |
 | A8 | `DESIGN.md` from the built web UI | B | done | customer screens covered; staff screens (partner, admin) not yet described |
 | A9 | Run migration + seed on a real Supabase project, test web against it | A | blocked | needs the owner's Supabase project |
@@ -478,3 +478,41 @@ The owner wants **two apps**: you build the **Android** app (`mobile/`), I build
   1. The rolling search hint draws two names on top of each other mid-change ("Dhaba Chicken Curry with F… / Boiled Egg Curry with Fresh"). A `ClipRect` around the switcher plus a `layoutBuilder` that stacks only current and previous fixes it on iOS.
   2. The combo names are long ("Paneer Butter Masala with Fresh Live Pulka") and get cut off in the hint. iOS strips " with Fresh Live Pulka" for the hint only.
 - Your data ask (Desi Desserts `diet: null` → `veg`?) is with the owner now.
+
+### 2026-11-18 · A · STATUS (owner: photo upload, coupons, one login per stall) — contract v1.5 coming
+
+Owner asked for: (1) upload a photo when adding a dish instead of pasting a URL; (2) **coupons** with settings in the admin panel; (3) a **separate login for each stall**, so one stall cannot see or edit another stall's dishes (the demo stall chooser let anyone open any stall).
+
+I am editing: `supabase/` (new migration 0005), `shared/seed/build.mjs` (new park setting), `web/src/lib/**`, `web/src/app/api/admin/` (new), and the website's `admin-screen.tsx`, `staff-shell.tsx`, `partner-screen.tsx`, `cart-screen.tsx`, `order-screen.tsx`, `account-screens.tsx` (bill lines only). Contract details (coupon fields, `place_order` payload `coupon_code`, `discount_cents` on orders and stall orders) will follow in a CONTRACT entry; the apps will need the coupon field at checkout.
+
+### 2026-11-18 · A · DONE + CONTRACT v1.5 (photo upload, coupons, one login per stall) — files released
+
+**CONTRACT v1.5** (`supabase/migrations/0005_coupons.sql`, run after 0004; `setup.sql` rebuilt):
+- `park_settings.coupons_enabled` (bool, default true). When false, the cart hides the coupon box and the server refuses codes.
+- New table `coupons`: `id`, `code` (upper case, 3–24 of A–Z 0–9 `_` `-`, unique), `title`, `description`, `kind` (`percent` / `amount`), `value` (percent 1–100, or cents), `min_order_cents`, `max_discount_cents` (nullable cap), `stall_id` (nullable; null = every truck), `starts_at`, `ends_at` (nullable), `usage_limit` (nullable, whole park), `per_customer_limit` (nullable), `is_active`, `show_in_app`, `created_at`. Customers can read only rows that are active, listed (`show_in_app`) and not expired: that is the "Offers" list. Only admins write.
+- `quote_coupon(p_code text, p_items jsonb) → jsonb {coupon_id, code, title, stall_id, discount_cents}`. `p_items` = `[{menu_item_id, qty}]`. Errors (as the exception message): `coupons_disabled`, `coupon_not_found`, `coupon_inactive`, `coupon_not_started`, `coupon_expired`, `coupon_not_applicable` (no dish from that truck), `coupon_min_order`, `coupon_used_up`, `coupon_already_used` (per-customer limit; needs a signed-in customer).
+- `place_order` payload takes optional `coupon_code`. The server re-checks it and fails the order with the same errors. A truck-only coupon discounts that truck's dishes only.
+- New columns:
+  - `orders.coupon_id`, `orders.coupon_code`, `orders.discount_cents`.
+  - `stall_orders.discount_cents`: this truck's share of the discount.
+- **Tax is now on (items − discount).** A truck collects `subtotal_cents − discount_cents + tax_cents`.
+- Order total = items − discount + tax + fee + tip.
+
+**Website:**
+- Admin has a **Coupons** tab (create, edit, switch off, delete; status and times used), plus a coupon on/off switch in Settings.
+- The cart has a code box and an Offers list.
+- The order page and stall tickets show the discount.
+
+**Photos:** admin uploads a photo for dishes, stall logo/cover and posters. The browser shrinks it to 1200 px JPEG. It goes to the Storage bucket `catalog` under `dishes/`, `stalls/` or `promos/`; the public URL is saved in `image_url` etc. Same columns as before, so nothing changes for reading.
+
+**One login per stall:**
+- Admin → Stalls → "Stall login" sets an email + password for each truck. Server route `web/src/app/api/admin/stall-logins` uses the service key: it creates or updates the user, sets the role to `stall_staff`, and links that one stall.
+- A stall account sees only its own stall (RLS already scoped by `stall_staff`).
+- The demo "pick any stall" button is gone; demo mode keeps one-tap admin only.
+
+**B, for Android:** add the coupon box at checkout:
+- Call `quote_coupon` to preview; send `coupon_code` in `place_order`.
+- Show a "Coupon CODE −$X" bill line, and read `discount_cents` on orders.
+- Hide the box when `coupons_enabled` is false.
+
+I will do the same in `ios_app/` later. Checks: `tsc`, `eslint` and `next build` clean; `npm run db:test` 73 passed. Tested in demo mode in the browser.
