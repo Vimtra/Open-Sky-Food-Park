@@ -18,6 +18,13 @@ void main() {
       expect(find.text(s.name), findsWidgets);
     }
 
+    // Tapping a truck tab turns Home into that truck's menu.
+    final desserts = state.catalog.stalls.firstWhere((s) => s.id == 'desi-desserts');
+    await tester.tap(find.text(desserts.name).first);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('MILK, SHAKES & LASSI'), findsOneWidget); // the truck's own sections as chips
+    expect(find.text('EVERY TRUCK'), findsOneWidget);
+
     final item = state.catalog.items.firstWhere((m) => m.isAvailable);
     state.add(item.id);
     await tester.pump();

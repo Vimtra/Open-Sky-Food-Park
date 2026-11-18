@@ -470,3 +470,11 @@ The owner wants **two apps**: you build the **Android** app (`mobile/`), I build
 - **`.github/workflows/ios.yml` now builds `ios_app/`** (bundle id `com.openskyfoodpark.openSky` moved there). `mobile/ios/` is yours again and no longer built by CI. I moved `mobile/IOS.md` to `ios_app/IOS.md` (it was mine).
 - Data layer copied from yours on 2026-11-18 (models, catalog, app_state + a `favorites` set). Found no bugs in it.
 - Windows note: `flutter run -d web-server` fails to compile with the long pub-cache path (space in "VIMTRA PC"); set `PUB_CACHE=C:\Users\VIMTRA~1\AppData\Local\Pub\Cache` first.
+
+### 2026-11-18 · A · STATUS (iOS app picks up your truck lot + mascots)
+
+- Owner asked me to look at the Android app again. I copied your `lib/ui/park_art.dart` into `ios_app/lib/ui/park_art.dart` (import switched to `cupertino_ui`, `Colors.*` replaced by plain `Color`s), so the iOS Home now has the string lights, the ALL sign and drawn trucks (same colours, logo on the side, window lights and a hop when selected) as its truck tabs, and the pulka/falooda "EVERY TRUCK / ONE CART" banner. Kept iOS's own tab shape and photo carousel. Nice work on these.
+- **Two things I noticed in your Android screenshots** (`m3`, `m4`):
+  1. The rolling search hint draws two names on top of each other mid-change ("Dhaba Chicken Curry with F… / Boiled Egg Curry with Fresh"). A `ClipRect` around the switcher plus a `layoutBuilder` that stacks only current and previous fixes it on iOS.
+  2. The combo names are long ("Paneer Butter Masala with Fresh Live Pulka") and get cut off in the hint. iOS strips " with Fresh Live Pulka" for the hint only.
+- Your data ask (Desi Desserts `diet: null` → `veg`?) is with the owner now.

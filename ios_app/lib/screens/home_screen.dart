@@ -9,6 +9,7 @@ import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
 import '../ui/kit.dart';
+import '../ui/park_art.dart';
 import 'account_screen.dart';
 import 'dish_sheet.dart';
 import 'search_screen.dart';
@@ -189,14 +190,17 @@ class _NightBand extends StatelessWidget {
 
   static const _panel = OsColors.night800;
 
+  /// Truck body colours, in park order (same as the Android app).
+  static const _truckColors = [Color(0xFFD9442B), Color(0xFFE2558E), Color(0xFF2E9E6A), Color(0xFF3A6FD8)];
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final cat = state.catalog;
     final top = MediaQuery.paddingOf(context).top;
-    final tabs = <({String? id, String label, String? image})>[
-      (id: null, label: 'All trucks', image: null),
-      for (final s in cat.stalls) (id: s.id, label: s.name, image: s.logoUrl),
+    final tabs = <({String? id, String label, String? image, Color? color})>[
+      (id: null, label: 'All trucks', image: null, color: null),
+      for (final (i, s) in cat.stalls.indexed) (id: s.id, label: s.name, image: s.logoUrl, color: _truckColors[i % _truckColors.length]),
     ];
     final selectedIndex = tabs.indexWhere((t) => t.id == stallId);
 
@@ -245,6 +249,13 @@ class _NightBand extends StatelessWidget {
             ),
           ),
 
+          // ---- string lights over the truck lot
+          SizedBox(
+            height: 18,
+            child: LoopClock(period: const Duration(seconds: 3), builder: (_, t) => CustomPaint(painter: StringLightsPainter(t))),
+          ),
+          const SizedBox(height: 4),
+
           // ---- the trucks as tabs
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -256,6 +267,7 @@ class _NightBand extends StatelessWidget {
                     child: _TruckTab(
                       label: tabs[i].label,
                       image: tabs[i].image,
+                      color: tabs[i].color,
                       selected: i == selectedIndex,
                       onTap: () => onStall(tabs[i].id),
                     ),
@@ -285,7 +297,9 @@ class _NightBand extends StatelessWidget {
                 _SearchRow(stallId: stallId),
                 const SizedBox(height: 14),
                 _FilterChips(stallId: stallId, selected: filter, onPick: onFilter),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
+                const _MascotBanner(),
+                const SizedBox(height: 12),
                 _PosterCarousel(stallId: stallId),
               ],
             ),
@@ -321,26 +335,50 @@ class _Avatar extends StatelessWidget {
       );
 }
 
+/// A truck tab: the drawn truck (or the ALL park sign) parked on the lot. Selecting it lights the
+/// serving window and the truck hops once.
 class _TruckTab extends StatelessWidget {
-  const _TruckTab({required this.label, required this.image, required this.selected, required this.onTap});
+  const _TruckTab({required this.label, required this.image, required this.color, required this.selected, required this.onTap});
 
   final String label;
   final String? image;
+  final Color? color;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final picture = image == null
-        ? Container(
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(colors: [OsColors.ember400, OsColors.ember600], begin: Alignment.topLeft, end: Alignment.bottomRight),
-            ),
-            alignment: Alignment.center,
-            child: const Icon(CupertinoIcons.square_grid_2x2_fill, color: OsColors.night900, size: 24),
-          )
-        : ClipOval(child: FoodImage(image));
+    final c = color;
+    final picture = LayoutBuilder(builder: (context, box) {
+      // Cap the truck so it fits the tab height on wide screens (iPad) too.
+      final w = box.maxWidth.clamp(0.0, 94.0);
+      final size = Size(w, w * 78 / 116);
+      return Center(child: TweenAnimationBuilder<double>(
+        key: ValueKey('$label-$selected'),
+        tween: Tween(begin: 0, end: selected ? 1 : 0),
+        duration: selected ? const Duration(milliseconds: 420) : OsMotion.popover,
+        curve: OsMotion.enter,
+        builder: (context, v, _) => Transform.translate(
+          offset: Offset(0, selected ? -sin(pi * v) * 7 : 0),
+          child: SizedBox.fromSize(
+            size: size,
+            child: c == null
+                ? LoopClock(period: const Duration(seconds: 2), builder: (_, t) => CustomPaint(size: size, painter: ParkSignPainter(lit: selected, t: t)))
+                : Stack(children: [
+                    CustomPaint(size: size, painter: TruckPainter(body: c, lit: selected, glow: selected ? v.clamp(0.0, 1.0) : 0)),
+                    if (image != null)
+                      Positioned.fromRect(
+                        rect: TruckPainter.logoRect(size),
+                        child: Container(
+                          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: OsColors.surface0, width: 1.5)),
+                          child: ClipOval(child: FoodImage(image)),
+                        ),
+                      ),
+                  ]),
+          ),
+        ),
+      ));
+    });
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -352,9 +390,9 @@ class _TruckTab extends StatelessWidget {
         child: AnimatedContainer(
           duration: OsMotion.popover,
           curve: OsMotion.enter,
-          height: selected ? 104 : 94,
+          height: selected ? 116 : 106,
           margin: const EdgeInsets.symmetric(horizontal: 2),
-          padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
           decoration: BoxDecoration(
             color: selected ? _NightBand._panel : const Color(0x14FFFFFF),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
@@ -362,21 +400,8 @@ class _TruckTab extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              AnimatedScale(
-                scale: selected ? 1.08 : 0.94,
-                duration: OsMotion.popover,
-                curve: OsMotion.enter,
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: selected ? const [BoxShadow(color: Color(0x66FF9A3D), blurRadius: 16, spreadRadius: -2)] : null,
-                  ),
-                  child: picture,
-                ),
-              ),
-              const SizedBox(height: 8),
+              SizedBox(height: 64, child: picture),
+              const SizedBox(height: 6),
               Text(
                 label,
                 maxLines: 1,
@@ -390,6 +415,34 @@ class _TruckTab extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The park's promise between two dancing mascots (the pulka and the falooda, shared with the Android app).
+class _MascotBanner extends StatelessWidget {
+  const _MascotBanner();
+
+  @override
+  Widget build(BuildContext context) => Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          const Mascot(kind: 'pulka', size: Size(64, 86)),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('EVERY TRUCK',
+                    textAlign: TextAlign.center, style: OsText.weight(OsText.heading, 800).copyWith(color: OsColors.surface0, fontSize: 19, letterSpacing: 1.2)),
+                Text('ONE CART',
+                    textAlign: TextAlign.center,
+                    style: OsText.weight(OsText.hero, 800).copyWith(color: OsColors.ember400, fontSize: 34, height: 1.0, letterSpacing: 0.6)),
+                const SizedBox(height: 6),
+                Text('Pay once. A token from each truck.', textAlign: TextAlign.center, style: OsText.weight(OsText.small, 600).copyWith(color: OsColors.nightMuted)),
+              ],
+            ),
+          ),
+          const Mascot(kind: 'falooda', size: Size(64, 86)),
+        ],
+      );
 }
 
 /// Search box with a hint that rolls through real dish names, plus the VEG switch.
