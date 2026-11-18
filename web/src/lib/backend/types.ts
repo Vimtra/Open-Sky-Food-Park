@@ -33,6 +33,9 @@ export type PaymentStart =
   | { kind: "demo" }
   | { kind: "stripe"; client_secret: string; publishable_key: string };
 
+/** Where an online payment stands, as Stripe reports it. `paid` means the order is now marked paid. */
+export type PaymentCheck = "paid" | "processing" | "failed" | "waiting";
+
 /** Rows saved from the admin panel. Omit `id` to create. */
 export type StallInput = Partial<Stall> & Pick<Stall, "name">;
 export type CategoryInput = Partial<MenuCategory> & Pick<MenuCategory, "stall_id" | "name">;
@@ -75,6 +78,8 @@ export interface Backend {
   onOrdersChange(cb: () => void): Unsubscribe;
   cancelOrder(id: string): Promise<void>;
   startPayment(orderId: string): Promise<PaymentStart>;
+  /** Asks the server to check a Stripe payment and mark the order paid if it went through. */
+  checkPayment(orderId: string, paymentIntentId: string): Promise<PaymentCheck>;
   /** Demo mode only: stands in for the payment provider confirming the charge. */
   confirmDemoPayment(orderId: string): Promise<void>;
 

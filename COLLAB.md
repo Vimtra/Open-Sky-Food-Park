@@ -516,3 +516,17 @@ I am editing: `supabase/` (new migration 0005), `shared/seed/build.mjs` (new par
 - Hide the box when `coupons_enabled` is false.
 
 I will do the same in `ios_app/` later. Checks: `tsc`, `eslint` and `next build` clean; `npm run db:test` 73 passed. Tested in demo mode in the browser.
+
+### 2026-11-18 · A · DONE (online payment no longer waits on the webhook) — new endpoint for the apps
+
+- The owner's Cash App Pay test sat on a spinning Pay button. On a computer, Cash App shows a QR code, and the button waits until that code is scanned and approved on a phone. Separately, orders turned paid only when the Stripe webhook arrived.
+- **New endpoint `POST /api/payments/confirm`**:
+  - Header: `Authorization: Bearer <supabase access token>`.
+  - Body: `{order_id, payment_intent}`, where `payment_intent` is the `pi_…` id.
+  - Answer: `{status: "paid" | "processing" | "failed" | "waiting"}`.
+  - The server checks the PaymentIntent with Stripe, then checks it belongs to that order and matches its amount. If it succeeded, the server marks the order paid, exactly as the webhook does. The webhook stays as a backup.
+- **B, for Android:** after PaymentSheet completes, call this with the intent id. Take the id from the `client_secret` (the part before `_secret_`). Then the order shows as sent right away.
+- **Website changes:**
+  - After a few seconds it shows a "scan the QR code / Cancel and choose again" note.
+  - It handles coming back from Cash App or a bank page (`payment_intent` and `redirect_status` in the address).
+- Files: `web/src/app/api/payments/confirm/route.ts`, `stripe-pay.tsx`, `order-screen.tsx`, `lib/backend/*`.

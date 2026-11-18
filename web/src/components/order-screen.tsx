@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ChevronLeft, CreditCard, Phone, Receipt } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { backend, isDemo, type PaymentStart } from "@/lib/backend";
 import { dayAndTime, friendlyError, imageSrc, money, ticketGuidance, ticketLabel } from "@/lib/format";
 import { useOrder, useSession } from "@/lib/hooks";
@@ -116,8 +116,54 @@ function TokenCard({ so, order }: { so: StallOrder; order: Order }) {
 function PaymentPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
   const [start, setStart] = useState<PaymentStart | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  // Back from a payment page (Cash App on a phone, bank checks): Stripe adds `payment_intent` to the address.
+  const [returnedIntent] = useState(() => new URLSearchParams(window.location.search).get("payment_intent"));
+  const [confirming, setConfirming] = useState(() => !!returnedIntent);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Ask the server to check the payment with Stripe, so the order does not wait for the webhook.
+  // Callers set `confirming` first.
+  const settle = useCallback(
+    async (intentId: string) => {
+      for (let i = 0; i < 6; i++) {
+        try {
+          const status = await backend().checkPayment(order.id, intentId);
+          if (status === "paid") return onPaid();
+          if (status === "failed") {
+            setConfirming(false);
+            setStart(null);
+            setError("The payment did not go through. Try again or pick another way to pay.");
+            return;
+          }
+          if (status === "processing") setProcessing(true);
+        } catch (err) {
+          setConfirming(false);
+          setError(friendlyError(err));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      // Still not settled: leave the message up; the webhook updates the order when it lands.
+      setProcessing(true);
+      onPaid();
+    },
+    [order.id, onPaid],
+  );
+
+  useEffect(() => {
+    if (!returnedIntent) return;
+    const q = new URLSearchParams(window.location.search);
+    ["payment_intent", "payment_intent_client_secret", "redirect_status", "redirect_pm_type"].forEach((k) => q.delete(k));
+    const rest = q.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : ""));
+    // A failed payment comes back as "failed" from the server check too.
+    // `settle` only sets state after it awaits the server, so nothing renders synchronously here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void settle(returnedIntent);
+    // Run once per return; `settle` changes identity on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnedIntent]);
 
   const begin = async () => {
     setBusy(true);
@@ -159,7 +205,8 @@ function PaymentPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
 
       {confirming ? (
         <p className="mt-4 flex items-center gap-2 text-label font-semibold">
-          <Spinner className="text-ink-900" /> Payment received. Sending your order to the stalls…
+          <Spinner className="text-ink-900" />{" "}
+          {processing ? "Your payment is still processing. This page updates as soon as it goes through." : "Payment received. Sending your order to the stalls…"}
         </p>
       ) : !start ? (
         <Button size="lg" className="mt-4 w-full sm:w-auto" loading={busy} onClick={begin}>
@@ -180,9 +227,10 @@ function PaymentPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
             publishableKey={start.publishable_key}
             amountLabel={money(order.total_cents)}
             returnUrl={typeof window !== "undefined" ? window.location.href : ""}
-            onSucceeded={() => {
+            onSucceeded={(intentId) => {
               setConfirming(true);
-              onPaid();
+              setError(null);
+              void settle(intentId);
             }}
           />
         </div>

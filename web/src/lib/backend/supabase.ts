@@ -200,6 +200,20 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       return { kind: "stripe", client_secret: body.client_secret, publishable_key: body.publishable_key };
     },
 
+    async checkPayment(orderId, paymentIntentId) {
+      const { data } = await db.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("sign_in_required");
+      const res = await fetch("/api/payments/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ order_id: orderId, payment_intent: paymentIntentId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not check the payment.");
+      return body.status;
+    },
+
     async confirmDemoPayment() {
       throw new Error("Demo payment is only available in demo mode.");
     },

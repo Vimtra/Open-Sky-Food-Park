@@ -399,6 +399,10 @@ export function createDemoBackend(): Backend {
       return { kind: "demo" };
     },
 
+    async checkPayment() {
+      return "waiting";
+    },
+
     async confirmDemoPayment(orderId) {
       await sleep(900);
       const orders = loadOrders();
