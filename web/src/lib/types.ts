@@ -30,6 +30,10 @@ export interface Park {
   hours_text: string | null;
   /** Master switch for the coupon box at checkout. */
   coupons_enabled: boolean;
+  /** v1.6: customers may pick a pickup time later today. */
+  scheduled_orders_enabled?: boolean;
+  /** v1.6: average stars shown to everyone (otherwise only to staff). */
+  ratings_public?: boolean;
 }
 
 export interface Stall {
@@ -48,6 +52,47 @@ export interface Stall {
   is_open: boolean;
   is_active: boolean;
   sort_order: number;
+  /** v1.6: opening hours (`stall_hours`) open and close ordering by themselves. */
+  auto_hours?: boolean;
+  /** v1.6: no new orders until this time (ISO), set by the truck. */
+  paused_until?: string | null;
+}
+
+/** v1.6 · weekday 0 = Sunday; "HH:MM" in the park's time zone. closes < opens means past midnight. */
+export interface StallHours {
+  id?: string;
+  stall_id: string;
+  weekday: number;
+  opens: string;
+  closes: string;
+}
+
+/** v1.6 · a group of choices on a dish: min 1 / max 1 is a required single pick (a size). */
+export interface MenuOptionGroup {
+  id: string;
+  menu_item_id: string;
+  name: string;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+}
+
+export interface MenuOption {
+  id: string;
+  group_id: string;
+  name: string;
+  /** Added to the dish price. */
+  price_cents: number;
+  is_default: boolean;
+  is_available: boolean;
+  sort_order: number;
+}
+
+/** Copy of a chosen option kept on the order line. */
+export interface ChosenOption {
+  group: string;
+  name: string;
+  price_cents: number;
 }
 
 export interface MenuCategory {
@@ -101,6 +146,10 @@ export interface Catalog {
   stalls: Stall[];
   menu_categories: MenuCategory[];
   menu_items: MenuItem[];
+  /** v1.6 */
+  stall_hours?: StallHours[];
+  menu_option_groups?: MenuOptionGroup[];
+  menu_options?: MenuOption[];
   /** Seed only: items whose price the owner has not confirmed. */
   placeholder_price_item_ids?: string[];
 }
@@ -114,6 +163,8 @@ export interface OrderItem {
   unit_price_cents: number;
   qty: number;
   note: string | null;
+  /** v1.6: options chosen; `unit_price_cents` already includes their prices. */
+  options?: ChosenOption[];
 }
 
 export type StallSummary = Pick<Stall, "id" | "slug" | "name" | "location_label" | "logo_url" | "phone">;
@@ -134,6 +185,10 @@ export interface StallOrder {
   accepted_at: string | null;
   ready_at: string | null;
   completed_at: string | null;
+  /** v1.6: minutes the truck said when accepting, and when that runs out. */
+  prep_mins?: number | null;
+  ready_by?: string | null;
+  refunded_cents?: number;
   order_items: OrderItem[];
   stall: StallSummary | null;
 }
@@ -160,6 +215,9 @@ export interface Order {
   payment_status: PaymentStatus;
   status: OrderStatus;
   created_at: string;
+  /** v1.6: pickup later today, or null for as soon as possible. */
+  pickup_at?: string | null;
+  refunded_cents?: number;
   stall_orders: StallOrder[];
 }
 
@@ -195,7 +253,9 @@ export interface PlaceOrderInput {
   payment_method: PaymentMethod;
   tip_cents: number;
   coupon_code?: string | null;
-  items: { menu_item_id: string; qty: number; note?: string | null }[];
+  /** v1.6: ISO time later today. */
+  pickup_at?: string | null;
+  items: { menu_item_id: string; qty: number; note?: string | null; option_ids?: string[] }[];
 }
 
 export interface PlaceOrderResult {
@@ -271,4 +331,84 @@ export interface CouponQuote {
 export interface StallLogin {
   stall_id: string;
   login: string | null;
+}
+
+// ---------------------------------------------------------------- contract v1.6
+
+export interface Favorite {
+  user_id: string;
+  menu_item_id: string | null;
+  stall_id: string | null;
+  created_at: string;
+}
+
+export interface OrderRating {
+  id: string;
+  stall_order_id: string;
+  order_id: string;
+  stall_id: string;
+  customer_id: string;
+  stars: number;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RefundStatus = "pending" | "succeeded" | "failed";
+
+export interface Refund {
+  id: string;
+  order_id: string;
+  stall_order_id: string | null;
+  amount_cents: number;
+  reason: string;
+  status: RefundStatus;
+  stripe_refund_id: string | null;
+  error: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
+/** `stall_status()`: reason is "closed" | "paused" | "outside_hours" when not accepting. */
+export interface StallStatus {
+  stall_id: string;
+  accepting: boolean;
+  reason: "closed" | "paused" | "outside_hours" | null;
+  paused_until: string | null;
+}
+
+/** `stall_wait_times()`: typical_prep_mins is null until there are enough real tickets. */
+export interface StallWait {
+  stall_id: string;
+  open_tickets: number;
+  typical_prep_mins: number | null;
+}
+
+/** `report_sales()`: charged = items − discount + tax, what the truck collects. */
+export interface SalesRow {
+  day: string;
+  stall_id: string;
+  orders: number;
+  items: number;
+  item_cents: number;
+  discount_cents: number;
+  tax_cents: number;
+  charged_cents: number;
+  online_cents: number;
+  at_stall_cents: number;
+  refunded_cents: number;
+}
+
+export interface ItemSalesRow {
+  stall_id: string;
+  menu_item_id: string | null;
+  name: string;
+  qty: number;
+  sales_cents: number;
+}
+
+export interface HourRow {
+  weekday: number;
+  hour: number;
+  orders: number;
 }

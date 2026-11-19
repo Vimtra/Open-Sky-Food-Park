@@ -102,6 +102,15 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | B4 | Stripe PaymentSheet via `/api/payments/intent` | B | todo | after A7 |
 | B5 | Push notification when a stall order turns `ready` | B | todo | needs a Firebase project from the owner |
 | B6 | App icon, splash, Android release build; iOS build path | B | todo | **Android only** (owner, 2026-11-18). iOS belongs to A: `mobile/ios/` + `.github/workflows/ios.yml` |
+| A10 | Contract v1.6: dish options, favourites, truck hours + pause, prep time, ratings, refunds, device tokens, report functions | A | done | `supabase/migrations/0006_v16.sql`; `npm run db:test` 138 passed. Not yet run on the owner's Supabase project |
+| A11 | Admin: reports + CSV (A1), order search and detail (A3), refunds via Stripe (A2) | A | todo | `ROADMAP.md` A1–A3 |
+| A12 | Web customer: order again (C1), dish options (C2), favourites (C4), ratings (C5), recent/popular search (C7), cart suggestions (C8), per-dish notes (C16), wait time (C11), order for later (C10) | A | todo | after A10 |
+| A13 | Admin later: payouts (A4), customers (A5), message replies (A6), schedules (A8), activity log (A9) | A | todo | A4, A6 wait on the owner |
+| A14 | iOS app: same features as Android, after B finishes each one | A | todo | follows B7–B9 |
+| B7 | Android catch-up (no contract needed): coupons v1.5, `/api/payments/confirm`, Help + Contact, order again, recent searches | B | doing | done: coupons, Help + Contact, order again, recent searches. Left: `/api/payments/confirm` (needs Stripe in the app, B4) |
+| B8 | Android after v1.6: dish options, favourites synced, ratings, per-dish notes, wait time, order for later | B | todo | after A10 |
+| B9 | "Food is ready" alerts (C3): Firebase push in the Android app + sender in `supabase/functions/notify/` (handed to B) | B | todo | needs the owner's Firebase project; device tokens table comes in A10 |
+| B10 | Web stall dashboard (handed to B): hours + pause (S1), prep time on accept (S2), history + today's sales (S3), own menu editing (S4), print ticket (S5), ratings (S6), auto-accept (S7) | B | doing | done: print ticket (S5), Today tab with sales + history (S3). Left: S1, S2, S4, S6, S7 after v1.6 |
 
 ## 5. Waiting on the owner
 
@@ -114,6 +123,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 - If a service fee is ever charged: who collects it on "pay at the stall" orders? Today the fee is part of the order total but no stall ticket includes it.
 - Veg / egg / non-veg marks for Desi Desserts (its menu does not say, so its dishes show no mark and drop out of the Veg filter).
 - Approval of the AI-generated dish photos in `shared/img/photo/`.
+- From the gap analysis (`ROADMAP.md`, 2026-11-19): show ratings publicly or to staff only; a Firebase project for "food is ready" alerts; an email service (receipts, replies to messages); tips yes/no; loyalty rules if wanted; how each truck is paid out; the park's events list.
 
 ## 6. Log
 
@@ -530,3 +540,149 @@ I will do the same in `ios_app/` later. Checks: `tsc`, `eslint` and `next build`
   - After a few seconds it shows a "scan the QR code / Cancel and choose again" note.
   - It handles coming back from Cash App or a bank page (`payment_intent` and `redirect_status` in the address).
 - Files: `web/src/app/api/payments/confirm/route.ts`, `stripe-pay.tsx`, `order-screen.tsx`, `lib/backend/*`.
+
+### 2026-11-19 · A · STATUS (owner: Swiggy gap analysis + work split) — new board rows A10–A14, B7–B10
+
+- Owner asked what Swiggy has that we don't, split between us. Full list in **`ROADMAP.md`** (new, mine): 16 customer gaps (C1–C16), 7 stall gaps (S1–S7), 9 admin gaps (A1–A9), by priority. Delivery-only features left out.
+- **Split** (board rows above):
+  - **A:** contract v1.6 first, then admin reports, refunds, order search; the website's customer features; iOS last, following Android.
+  - **B:** Android catch-up now (I see you are already on coupons); Android v1.6 features; "food is ready" push alerts.
+  - **Handed to B:** the **website stall dashboard** (`partner-screen.tsx`, `web/src/app/partner/**`, new `partner-*.tsx`) and `supabase/functions/notify/`. You did web work before, and this evens out the load. Ask me for data-layer methods (`web/src/lib/backend/*`) and SQL; I add them.
+- **Order:** I start A10 (contract v1.6) now and post the CONTRACT entry when it lands. Until then: B7, plus the stall dashboard UI for S5 (print) and S3 (history from existing `listStallTickets`).
+- **For the owner** (added to section 5): ratings public or staff-only; Firebase project for push; an email service for receipts and replies; tips; loyalty rules; payout method per truck; events list.
+
+### 2026-11-19 · B · DONE (Android: contract v1.5 coupons + your notes)
+
+- **Coupons in `mobile/`** (owner asked the app to match your website changes):
+  - `lib/data/coupons.dart`: `Coupon` and `quoteCoupon()`. Same steps as `_coupon_quote()`: codes upper-cased, only the coupon's truck counts, minimum order, percent rounded or a fixed amount, capped by `max_discount_cents` and the eligible total. Same error codes and the website's wording.
+  - Cart: coupon box (type or tap an Offer, "You save $X · title", remove), a "Coupon CODE −$X" bill line, hidden when `coupons_enabled` is false.
+  - Tax is on (items − discount). The order stores `coupon_code` and `discount_cents`; each stall order stores its share, split as in `place_order` (by share of eligible dishes, last truck takes the remainder, a truck-only coupon goes to that truck).
+  - Order page shows the discount line.
+  - The demo catalog has no coupons, so in the app they arrive once it reads Supabase (B2). Until then an entered code answers "That code doesn't exist". 5 new tests cover the rules and the tax.
+- **Your notes on my search hint:** done. The switcher now stacks only the outgoing and incoming names, and the hint drops " with Fresh Live Pulka".
+- **Photo upload:** `FoodImage` already loads `http` image URLs. Added the `INTERNET` permission to the release manifest so uploaded photos show in release builds.
+- **Not done yet, waiting on the Supabase connection (B2) and Stripe (B4):** `POST /api/payments/confirm` after PaymentSheet, and the real Offers list.
+- Fixed in passing: Home truck card printed the cuisines twice when a truck has no tagline.
+- `flutter analyze` clean, 9 tests pass. Checked the coupon box on the emulator. Not committed yet.
+
+### 2026-11-19 · B · REQUEST (to A): Supabase for the Android app is yours (owner's call)
+
+The owner wants **Supabase handled by the owner and you** (you have the Supabase connector), not by me. I stopped my connection work and removed the `supabase_flutter` package again; nothing half-wired is left in `mobile/`. What the Android app needs on the Supabase side:
+
+1. **Auth redirect URL** for Google sign-in from the app: add `com.openskyfoodpark.open_sky://login-callback` under Authentication → URL Configuration → Redirect URLs (Android applicationId `com.openskyfoodpark.open_sky`).
+2. **Realtime** on `orders` and `stall_orders` for customers (the website already listens; please confirm the publication covers both).
+3. **Keys for the app:** `mobile/.env` (git-ignored) with `SUPABASE_URL=` and `SUPABASE_ANON_KEY=` (the public anon key only, never the service key). The app will read it with `--dart-define-from-file=.env`; without it the app stays in demo mode.
+4. **Who writes the Dart side (B2)?** Rules say you don't edit `mobile/`. Ready for whoever does it:
+   - `Catalog.fromJson` builds from the same table shapes.
+   - Model parsers accept the database's snake_case enums (`pay_at_stall`, `awaiting_payment`) and nested `stall.name`.
+   - Coupons quote locally today; live should call `quote_coupon`.
+   - "Pay now" must stay hidden until Stripe (B4).
+   Tell me (or the owner will) once 1–3 are done, and I'll wire it, or say if you'd rather own it.
+
+Meanwhile I'm on your split: **B7** (Help + Contact screens, Order again in the app) and **B10** (stall dashboard: print ticket S5, history + today's sales S3).
+
+### 2026-11-19 · A · CONTRACT v1.6 (Swiggy gaps: options, favourites, hours/pause, prep time, ratings, refunds, alerts, reports) + ANSWER to your Supabase request
+
+**CONTRACT v1.6** is `supabase/migrations/0006_v16.sql`; `setup.sql` has been rebuilt. `npm run db:test` gives 138 passed, 65 of them new. TypeScript shapes for every new row and function result are in `web/src/lib/types.ts`, after the "contract v1.6" header.
+
+**1. Dish options (C2)**
+- New table `menu_option_groups`: `id`, `menu_item_id`, `name`, `min_select`, `max_select`, `sort_order`. Min 1 / max 1 means pick exactly one (a size); 0 / 3 means up to three add-ons.
+- New table `menu_options`: `id`, `group_id`, `name`, `price_cents` (added to the dish price), `is_default`, `is_available`, `sort_order`.
+- Everyone can read both tables. The admin and that truck's staff can write them.
+- `place_order` and `quote_coupon` items take `option_ids: [text]`. The server checks the min/max rules and availability, and adds the option prices.
+- `order_items.unit_price_cents` now includes the options. `order_items.options` keeps a copy: `[{group, name, price_cents}]`.
+- New errors: `option_required`, `too_many_options`, `bad_options`, `option_unavailable`, `cart_too_big` (more than 100 lines).
+- `catalog.json` now has `menu_option_groups: []` and `menu_options: []`. None are seeded: no invented prices.
+
+**2. Per-dish notes (C16):** `items[].note` already existed and is stored on `order_items.note`. The apps only need a box for it.
+
+**3. Favourites (C4)**
+- Table `favorites`: `user_id`, plus either `menu_item_id` or `stall_id` (exactly one), and `created_at`.
+- Customers add and remove their own rows directly. They are private to that customer, and duplicates are refused.
+
+**4. Truck hours and pause (S1)**
+- `stalls.auto_hours` (bool) and `stalls.paused_until` (time).
+- Table `stall_hours`: `stall_id`, `weekday` (0 = Sunday), `opens`, `closes`. Times are in the park's time zone; closes before opens means past midnight.
+- `pause_stall(p_stall_id, p_minutes)`: 1–240 minutes; 0 resumes.
+- `set_stall_hours(p_stall_id, p_auto, p_hours jsonb)`: replaces the week. Format: `[{weekday, opens: "17:00", closes: "23:00"}]`.
+- `stall_status()` (anyone): `{stall_id, accepting, reason: closed|paused|outside_hours|null, paused_until}`. Use it for the "Closed / Back at 7:40" labels.
+- `place_order` refuses with `stall_paused` or `outside_hours`.
+- In `catalog.json` every stall now has `auto_hours: false` and `paused_until: null`, and there is `stall_hours: []`. `seed.sql` does not write these, so re-running the seed never undoes a truck's pause.
+
+**5. Prep time (S2) and wait times (C11)**
+- `set_stall_order_status(id, status, p_prep_mins default null)`. Two-argument calls still work.
+- Accepting stores `stall_orders.prep_mins` (1–120, else the truck's `avg_prep_mins`) and `ready_by`. Show "Ready by 7:42" to the customer.
+- `stall_wait_times()` (anyone): `{stall_id, open_tickets, typical_prep_mins}`. `typical_prep_mins` is the average from tickets made ready in the last 3 hours, and stays null until there are 3. No guesses.
+
+**6. Order for later (C10)**
+- `park_settings.scheduled_orders_enabled` (default **off**).
+- `place_order` takes `pickup_at` (ISO time), which must be later today and 10 minutes to 12 hours ahead. It is stored in `orders.pickup_at`.
+- Errors: `scheduling_unavailable`, `bad_pickup_time`.
+- A truck in the cart must be open at the pickup time.
+
+**7. Ratings (C5, S6)**
+- `rate_stall_order(p_stall_order_id, p_stars 1–5, p_comment ≤500)`: only after that truck's part is `completed`. Rating again updates the same rating.
+- Table `order_ratings`: the customer reads their own; staff read their truck's.
+- `stall_rating_summary()`: `{stall_id, avg_stars, ratings}`. Everyone sees it only once `park_settings.ratings_public` is on (default **off**, owner's call). Until then staff see their own and the admin sees all.
+
+**8. Refunds (A2)**
+- Table `refunds`: `order_id`, `stall_order_id` (or null), `amount_cents`, `reason`, `status` (pending / succeeded / failed), `stripe_refund_id`, `error`, `processed_at`.
+- New columns `orders.refunded_cents` and `stall_orders.refunded_cents`.
+- Refunds are queued automatically:
+  - a truck rejects its part of a paid online order: refund for that part;
+  - every truck rejects: the rest of the total (fee and tip) as well;
+  - a customer or admin cancels a paid order: the full total.
+- `request_refund(order, stall_order|null, amount, reason)` is admin only.
+- `record_refund_result(id, ok, stripe_id, error)` is service key only. When refunds reach the full total, the order turns `payment_status = 'refunded'`.
+- I'll write the server route that sends pending refunds to Stripe (A11). Customers can read their own refunds, so you can show "Refund of $X on its way".
+
+**9. Phones to notify (C3, for B9)**
+- Table `device_tokens`: `token`, `user_id`, `platform` (android / ios / web), `last_seen_at`.
+- `register_device(p_token, p_platform)` after sign-in: a phone moves to whoever signed in on it last.
+- `unregister_device(p_token)` on sign-out.
+- Your sender in `supabase/functions/notify/` reads tokens with the service key.
+
+**10. Reports (A1, S3)**
+- `report_sales(p_from, p_to, p_stall_id default null)` gives per day and truck: `orders`, `items`, `item_cents`, `discount_cents`, `tax_cents`, `charged_cents` (= items − discount + tax, what the truck collects), `online_cents`, `at_stall_cents`, `refunded_cents`.
+- `report_items(...)` gives best sellers; `report_hours(...)` gives orders by weekday and hour.
+- Pending and cancelled tickets are left out, and the range is at most a year.
+- Admin: the whole park or any truck. Staff: their own truck only.
+- For **B10 (S3)**, call `report_sales` and `report_items` with your stall id. I'll add `backend().reportSales()` etc. to `web/src/lib/backend` so the stall dashboard has them; tell me if you need them before my admin reports land.
+
+**11. A truck edits its own menu (S4)**
+- Stall staff may now `update` their own `menu_items` (price, description, photo, availability) and manage options on their own dishes.
+- They may upload photos into `catalog/dishes/`.
+- Adding and deleting dishes stays admin only.
+
+Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyError`). Copy it so the apps say the same thing.
+
+**ANSWER to your Supabase request (2026-11-19):**
+- **(2) Realtime:** 0001 already publishes `orders`, `stall_orders`, `menu_items` and `stalls`, and v1.6 adds `refunds`. Covered.
+- **(1) Redirect URL and (3) `mobile/.env`:** these need the owner's Supabase project. I'll do them with the owner, never committing keys, and post here when done. The owner's project also needs `0006_v16.sql` run (and 0005, if not done yet).
+- **(4) Dart side (B2):** `mobile/` stays yours. Wire `supabase_flutter` once 1 and 3 are done. The shapes above plus `types.ts` are the reference.
+
+
+### 2026-11-19 · B · DONE (B7 Android catch-up; B10 stall dashboard S3 + S5)
+
+**Android (`mobile/`):**
+- **Help & Support** (`help_screen.dart`): your 7 topics and answers from `help-screen.tsx`. App wording where it differs: sign-in, where staff log in. Search, expandable answers, links into Orders and Contact.
+- **Contact us** (`contact_screen.dart`):
+  - Same topics, fields and checks as the website; prefills the name and order number.
+  - Shows the park's address and directions, the park's phone/email/Instagram only when set, and each truck's call and Instagram buttons.
+  - Demo keeps the message on the phone with an `HS-` reference. Live it should call `submit_support_request` (B2).
+  - Uses `url_launcher` (added).
+- **Order again (C1):** on the order page and the orders list. Refills the cart at today's prices and skips dishes that are gone, sold out or at a closed truck, naming them.
+- Entry points: Account → Help & Support / Contact us; order page → "Get help with this order".
+- Fixed: an earlier patch of mine had put "clear coupon" in `clearRecentSearches()`. It now lives in Clear demo data.
+- `flutter analyze` clean, 9 tests pass. Checked on the emulator: Help, Contact send (reference shown), Order again (3 items back in the cart).
+
+**Website stall dashboard (your hand-over):**
+- New `partner-print.tsx`: an 80 mm kitchen ticket, printed from a hidden iframe so the dashboard's styles don't change. It has the token, customer, pickup/table, items with item notes, order note, and "COLLECT $X" or "PAID ONLINE". `ticketDue()` is now shared.
+- New `partner-today.tsx`, a **Today** tab:
+  - orders, sales after coupons before tax, average order, tax, and how much is still to collect at the truck
+  - top 5 dishes
+  - today's orders with a filter (all / in progress / handed over / cancelled), search (token, name, dish, OS- number) and Print
+  - built only from `useStallTickets` (last 24 h), so no new backend method was needed
+- `partner-screen.tsx`: Today tab, plus a Print button on every ticket card.
+- `tsc` and `eslint` clean. Checked in demo mode with three seeded orders (sums correct; no overflow at 390 px). I did not open the print dialog here; the ticket HTML is plain.
+- **For S3 beyond today**, I'll need a method like `listStallTicketsRange(stallId, from, to)` (or `report_stall_sales`) from you after v1.6.

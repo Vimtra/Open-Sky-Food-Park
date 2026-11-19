@@ -323,6 +323,229 @@ check("orders without a code still work with coupons off", (await one("select di
 await as("authenticated", admin);
 await db.query("update public.park_settings set coupons_enabled = true where id = 1");
 
+// ---- contract v1.6 (0006_v16.sql)
+const err = async (sql, params = []) => (await fails(sql, params)) ?? "";
+const place = async (over = {}) => (await one("select public.place_order($1::jsonb) as r", [payload(over)])).r;
+const DISH = catalog.menu_items.find((m) => m.stall_id === "pandemkodi-dhaba" && m.id !== PULKA).id;
+const SWEET_DISH = FALOODA;
+
+// dish options: a truck sets them up on its own dishes only
+await as("authenticated", staff);
+const spice = (await one("insert into public.menu_option_groups (menu_item_id, name, min_select, max_select) values ($1, 'Spice level', 1, 1) returning id", [DISH])).id;
+const addons = (await one("insert into public.menu_option_groups (menu_item_id, name, min_select, max_select, sort_order) values ($1, 'Add-ons', 0, 2, 1) returning id", [DISH])).id;
+const [mild, hot] = (await rows("insert into public.menu_options (group_id, name, price_cents, sort_order) values ($1, 'Mild', 0, 0), ($1, 'Hot', 0, 1) returning id", [spice])).map((r) => r.id);
+const [extraPulka, raita, egg] = (await rows("insert into public.menu_options (group_id, name, price_cents, sort_order) values ($1, 'Extra pulka', 199, 0), ($1, 'Raita', 150, 1), ($1, 'Boiled egg', 100, 2) returning id", [addons])).map((r) => r.id);
+check("truck staff add options to their own dish", Boolean(spice && addons && mild && extraPulka));
+check(
+  "truck staff cannot add options to another truck's dish",
+  /row-level security|permission denied/.test(await err("insert into public.menu_option_groups (menu_item_id, name) values ($1, 'Size')", [SWEET_DISH])),
+);
+await db.query("update public.menu_items set description = 'Edited by the truck' where id = $1", [DISH]);
+await db.query("update public.menu_items set description = 'Hacked' where id = $1", [SWEET_DISH]);
+await as("anon");
+check("truck staff edit their own dishes (S4)", (await one("select description from public.menu_items where id = $1", [DISH])).description === "Edited by the truck");
+check("…but not another truck's", (await one("select description from public.menu_items where id = $1", [SWEET_DISH])).description !== "Hacked");
+check("anyone reads dish options", (await one("select count(*)::int n from public.menu_options")).n === 5);
+
+await as("authenticated", customer);
+const base = (await one("select price_cents from public.menu_items where id = $1", [DISH])).price_cents;
+const line = (option_ids) => ({ items: [{ menu_item_id: DISH, qty: 2, option_ids }] });
+check("required option missing is refused", /option_required/.test(await err("select public.place_order($1::jsonb)", [payload(line([]))])));
+check("too many add-ons refused", /too_many_options/.test(await err("select public.place_order($1::jsonb)", [payload(line([hot, extraPulka, raita, egg]))])));
+check("option from another dish refused", /bad_options/.test(await err("select public.place_order($1::jsonb)", [payload({ items: [{ menu_item_id: PULKA, qty: 1, option_ids: [hot] }] })])));
+check("same option twice refused", /bad_options/.test(await err("select public.place_order($1::jsonb)", [payload(line([hot, hot]))])));
+const withOpts = await place(line([hot, extraPulka, raita]));
+const optItem = await one("select oi.* from public.order_items oi join public.stall_orders so on so.id = oi.stall_order_id where so.order_id = $1", [withOpts.order_id]);
+check("option prices are added to the dish price", optItem.unit_price_cents === base + 199 + 150 && withOpts.total_cents >= 2 * (base + 349), JSON.stringify({ unit: optItem.unit_price_cents, base }));
+check(
+  "order line keeps a copy of the options chosen",
+  optItem.options.length === 3 && optItem.options[0].group === "Spice level" && optItem.options[0].name === "Hot" && optItem.options[1].price_cents === 199,
+  JSON.stringify(optItem.options),
+);
+const optQuote = (await one("select public.quote_coupon('SAVE10', $1::jsonb) as q", [JSON.stringify([{ menu_item_id: DISH, qty: 2, option_ids: [hot, extraPulka] }])])).q;
+check("coupon quote counts option prices", optQuote.discount_cents === Math.min(Math.round(2 * (base + 199) * 0.1), 300), JSON.stringify(optQuote));
+await as("authenticated", staff);
+await db.query("update public.menu_options set is_available = false where id = $1", [raita]);
+await as("authenticated", customer);
+check("sold-out option refused", /option_unavailable/.test(await err("select public.place_order($1::jsonb)", [payload(line([mild, raita]))])));
+
+// favourites
+await db.query("insert into public.favorites (user_id, menu_item_id) values ($1, $2)", [customer, DISH]);
+await db.query("insert into public.favorites (user_id, stall_id) values ($1, 'desi-desserts')", [customer]);
+check("customer saves a dish and a truck", (await one("select count(*)::int n from public.favorites")).n === 2);
+check("saving the same dish twice is refused", /duplicate|unique/.test(await err("insert into public.favorites (user_id, menu_item_id) values ($1, $2)", [customer, DISH])));
+check("a favourite is a dish or a truck, not both", /check/.test(await err("insert into public.favorites (user_id, menu_item_id, stall_id) values ($1, $2, 'desi-desserts')", [customer, PULKA])));
+check("cannot save favourites for someone else", /row-level security/.test(await err("insert into public.favorites (user_id, menu_item_id) values ($1, $2)", [stranger, PULKA])));
+await as("authenticated", stranger);
+check("favourites are private", (await one("select count(*)::int n from public.favorites")).n === 0);
+
+// pause and opening hours
+check("only that truck's staff can pause it", /forbidden/.test(await err("select public.pause_stall('pandemkodi-dhaba', 15)")));
+await as("authenticated", staff);
+await db.query("select public.pause_stall('pandemkodi-dhaba', 15)");
+await as("anon");
+const pausedRow = await one("select * from public.stall_status() where stall_id = 'pandemkodi-dhaba'");
+check("stall_status shows the pause", pausedRow.accepting === false && pausedRow.reason === "paused" && pausedRow.paused_until !== null);
+await as("authenticated", customer);
+check("paused truck refuses orders", /stall_paused/.test(await err("select public.place_order($1::jsonb)", [payload()])));
+await as("authenticated", staff);
+await db.query("select public.pause_stall('pandemkodi-dhaba', 0)");
+check("pause longer than 4 hours refused", /bad_minutes/.test(await err("select public.pause_stall('pandemkodi-dhaba', 600)")));
+
+const hNow = (await one("select extract(hour from now() at time zone 'America/Los_Angeles')::int h")).h;
+const hh = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
+const week = (opens, closes) => JSON.stringify([0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens, closes })));
+await db.query("select public.set_stall_hours('pandemkodi-dhaba', true, $1::jsonb)", [week(hh(hNow + 2), hh(hNow + 3))]);
+await as("authenticated", customer);
+check("outside opening hours refuses orders", /outside_hours/.test(await err("select public.place_order($1::jsonb)", [payload()])));
+await as("authenticated", staff);
+await db.query("select public.set_stall_hours('pandemkodi-dhaba', true, $1::jsonb)", [week(hh(hNow), hh(hNow + 1))]);
+await as("authenticated", customer);
+check("inside opening hours takes orders (hours past midnight too)", Boolean((await place()).order_id));
+await as("authenticated", staff);
+check("bad hours refused", /bad_hours/.test(await err("select public.set_stall_hours('pandemkodi-dhaba', true, '[{\"weekday\":1,\"opens\":\"25:00\",\"closes\":\"26:00\"}]'::jsonb)")));
+check("auto hours with no hours refused", /bad_hours/.test(await err("select public.set_stall_hours('pandemkodi-dhaba', true, '[]'::jsonb)")));
+await db.query("select public.set_stall_hours('pandemkodi-dhaba', false, '[]'::jsonb)");
+
+// prep time on accept
+await as("authenticated", customer);
+const prepOrder = await place();
+const prepTicket = await one("select id from public.stall_orders where order_id = $1 and stall_id = 'pandemkodi-dhaba'", [prepOrder.order_id]);
+await as("authenticated", staff);
+check("prep time over 2 hours refused", /bad_prep_time/.test(await err("select public.set_stall_order_status($1, 'preparing', 500)", [prepTicket.id])));
+await db.query("select public.set_stall_order_status($1, 'preparing', 12)", [prepTicket.id]);
+const accepted = await one("select prep_mins, extract(epoch from ready_by - accepted_at)::int s from public.stall_orders where id = $1", [prepTicket.id]);
+check("accepting with a prep time sets ready_by", accepted.prep_mins === 12 && accepted.s === 720, JSON.stringify(accepted));
+await db.query("select public.set_stall_order_status($1, 'ready')", [prepTicket.id]);
+check("two-argument status calls still work", (await one("select status from public.stall_orders where id = $1", [prepTicket.id])).status === "ready");
+
+// ratings
+await as("authenticated", customer);
+check("cannot rate before pickup", /not_completed/.test(await err("select public.rate_stall_order($1, 5, 'x')", [prepTicket.id])));
+await as("authenticated", staff);
+await db.query("select public.set_stall_order_status($1, 'completed')", [prepTicket.id]);
+await as("authenticated", stranger);
+check("cannot rate someone else's order", /not_found/.test(await err("select public.rate_stall_order($1, 1, 'bad')", [prepTicket.id])));
+await as("authenticated", customer);
+check("stars must be 1–5", /bad_rating/.test(await err("select public.rate_stall_order($1, 6, null)", [prepTicket.id])));
+await db.query("select public.rate_stall_order($1, 4, 'Good pulka')", [prepTicket.id]);
+await db.query("select public.rate_stall_order($1, 5, 'Great pulka')", [prepTicket.id]);
+const myRating = await one("select stars, comment from public.order_ratings where stall_order_id = $1", [prepTicket.id]);
+check("rating again updates the same rating", myRating.stars === 5 && myRating.comment === "Great pulka");
+await as("anon");
+check("ratings stay private while ratings_public is off", (await rows("select * from public.stall_rating_summary()")).length === 0);
+await as("authenticated", staff);
+const staffSummary = await rows("select * from public.stall_rating_summary()");
+check("a truck sees its own ratings", staffSummary.length === 1 && staffSummary[0].stall_id === "pandemkodi-dhaba" && Number(staffSummary[0].avg_stars) === 5);
+check("a truck reads its comments", (await one("select count(*)::int n from public.order_ratings")).n === 1);
+await as("authenticated", admin);
+await db.query("update public.park_settings set ratings_public = true where id = 1");
+await as("anon");
+check("ratings show to everyone once the owner turns them on", (await rows("select * from public.stall_rating_summary()")).length === 1);
+await as("authenticated", admin);
+await db.query("update public.park_settings set ratings_public = false where id = 1");
+
+// refunds
+await as("authenticated", customer);
+const paidOrder = await place({ payment_method: "online", tip_cents: 100 });
+await as("authenticated", admin);
+check("unpaid order is not refundable", /not_refundable/.test(await err("select public.request_refund($1, null, 100, 'x')", [paidOrder.order_id])));
+await as("service_role");
+await db.query("select public.mark_order_paid($1, 'pi_test')", [paidOrder.order_id]);
+const paidTickets = await rows("select id, stall_id, subtotal_cents - discount_cents + tax_cents due from public.stall_orders where order_id = $1 order by stall_id", [paidOrder.order_id]);
+const pkPaid = paidTickets.find((t) => t.stall_id === "pandemkodi-dhaba");
+const ddPaid = paidTickets.find((t) => t.stall_id === "desi-desserts");
+await as("authenticated", staff);
+await db.query("select public.set_stall_order_status($1, 'cancelled')", [pkPaid.id]);
+await as("authenticated", customer);
+const r1 = await rows("select * from public.refunds where order_id = $1", [paidOrder.order_id]);
+check("truck rejecting a paid order queues a refund for its part", r1.length === 1 && r1[0].amount_cents === pkPaid.due && r1[0].status === "pending" && r1[0].stall_order_id === pkPaid.id, JSON.stringify(r1));
+await as("authenticated", admin);
+await db.query("select public.set_stall_order_status($1, 'cancelled')", [ddPaid.id]);
+const r2 = await rows("select * from public.refunds where order_id = $1 order by created_at, amount_cents", [paidOrder.order_id]);
+const total2 = (await one("select total_cents from public.orders where id = $1", [paidOrder.order_id])).total_cents;
+check("every truck rejected: refunds add up to the full total, tip included", r2.reduce((n, r) => n + r.amount_cents, 0) === total2 && r2.length === 3, JSON.stringify(r2.map((r) => r.amount_cents)));
+check("cannot refund more than was paid", /bad_amount/.test(await err("select public.request_refund($1, null, 1, 'more')", [paidOrder.order_id])));
+await as("authenticated", customer);
+check("customer cannot record refund results", /permission denied/.test(await err("select public.record_refund_result($1, true, 're_x', null)", [r2[0].id])));
+await as("service_role");
+for (const r of r2) await db.query("select public.record_refund_result($1, true, $2, null)", [r.id, `re_${r.amount_cents}`]);
+const refundedOrder = await one("select payment_status, refunded_cents from public.orders where id = $1", [paidOrder.order_id]);
+check("all refunds sent: order shows refunded", refundedOrder.payment_status === "refunded" && refundedOrder.refunded_cents === total2, JSON.stringify(refundedOrder));
+
+await as("authenticated", customer);
+const partOrder = await place({ payment_method: "online" });
+await as("service_role");
+await db.query("select public.mark_order_paid($1, 'pi_test2')", [partOrder.order_id]);
+await as("authenticated", admin);
+const partId = (await one("select public.request_refund($1, null, 150, 'Missing raita') as id", [partOrder.order_id])).id;
+await as("service_role");
+await db.query("select public.record_refund_result($1, false, null, 'card_declined')", [partId]);
+const partRow = await one("select status, error from public.refunds where id = $1", [partId]);
+const partPaid = await one("select payment_status, refunded_cents from public.orders where id = $1", [partOrder.order_id]);
+check("failed refund is recorded and leaves the order paid", partRow.status === "failed" && partRow.error === "card_declined" && partPaid.payment_status === "paid" && partPaid.refunded_cents === 0);
+await as("authenticated", customer);
+await db.query("select public.cancel_order($1)", [partOrder.order_id]);
+const cancelRefund = await rows("select amount_cents from public.refunds where order_id = $1 and status = 'pending'", [partOrder.order_id]);
+check("customer cancelling a paid order queues a full refund", cancelRefund.length === 1 && cancelRefund[0].amount_cents === partOrder.total_cents, JSON.stringify(cancelRefund));
+await as("authenticated", stranger);
+check("refunds are private to the order's customer", (await one("select count(*)::int n from public.refunds")).n === 0);
+
+// order for later
+await as("authenticated", customer);
+const soon = (mins) => new Date(Date.now() + mins * 60000).toISOString();
+check("ordering for later is off by default", /scheduling_unavailable/.test(await err("select public.place_order($1::jsonb)", [payload({ pickup_at: soon(30) })])));
+await as("authenticated", admin);
+await db.query("update public.park_settings set scheduled_orders_enabled = true where id = 1");
+await as("authenticated", customer);
+check("pickup time too soon refused", /bad_pickup_time/.test(await err("select public.place_order($1::jsonb)", [payload({ pickup_at: soon(3) })])));
+check("pickup time unreadable refused", /bad_pickup_time/.test(await err("select public.place_order($1::jsonb)", [payload({ pickup_at: "tonight" })])));
+const sameDay = (await one("select ((now() + interval '15 minutes') at time zone 'America/Los_Angeles')::date = (now() at time zone 'America/Los_Angeles')::date ok")).ok;
+if (sameDay) {
+  const later = await place({ pickup_at: soon(15) });
+  check("order for later keeps its pickup time", (await one("select pickup_at from public.orders where id = $1", [later.order_id])).pickup_at !== null);
+} else {
+  check("order for later keeps its pickup time (skipped near midnight)", true);
+}
+await as("authenticated", admin);
+await db.query("update public.park_settings set scheduled_orders_enabled = false where id = 1");
+
+// phones to notify
+await as("anon");
+check("visitors cannot register a phone", /permission denied|sign_in_required/.test(await err("select public.register_device('tok_1234567890', 'android')")));
+await as("authenticated", customer);
+await db.query("select public.register_device('tok_1234567890', 'android')");
+check("customer registers a phone", (await one("select count(*)::int n from public.device_tokens")).n === 1);
+check("bad platform refused", /bad_device/.test(await err("select public.register_device('tok_abcdefghij', 'blackberry')")));
+await as("authenticated", stranger);
+await db.query("select public.register_device('tok_1234567890', 'android')");
+check("a phone moves to whoever signed in on it last", (await one("select count(*)::int n from public.device_tokens")).n === 1);
+await as("authenticated", customer);
+check("phones are private", (await one("select count(*)::int n from public.device_tokens")).n === 0);
+
+// reports
+const today = (await one("select (now() at time zone 'America/Los_Angeles')::date::text d")).d;
+await as("authenticated", admin);
+const sales = await rows("select * from public.report_sales($1::date, $1::date)", [today]);
+const expectCharged = (await one("select coalesce(sum(subtotal_cents - discount_cents + tax_cents), 0)::int n from public.stall_orders where status not in ('pending', 'cancelled')")).n;
+check("sales report adds up to what trucks charged", sales.length > 0 && sales.reduce((n, r) => n + r.charged_cents, 0) === expectCharged, `${sales.reduce((n, r) => n + r.charged_cents, 0)} vs ${expectCharged}`);
+check("sales report splits online and at-truck", sales.every((r) => r.online_cents + r.at_stall_cents === r.charged_cents));
+const items = await rows("select * from public.report_items($1::date, $1::date)", [today]);
+check("dish report lists best sellers first", items.length > 0 && items.every((r, i) => i === 0 || items[i - 1].qty >= r.qty));
+check("busiest hours report has rows", (await rows("select * from public.report_hours($1::date, $1::date)", [today])).length > 0);
+check("report range over a year refused", /bad_range/.test(await err("select * from public.report_sales('2020-01-01', '2026-01-01')")));
+await as("authenticated", staff);
+check("a truck sees its own numbers", (await rows("select * from public.report_sales($1::date, $1::date, 'pandemkodi-dhaba')", [today])).every((r) => r.stall_id === "pandemkodi-dhaba"));
+check("a truck cannot see another truck's numbers", /forbidden/.test(await err("select * from public.report_sales($1::date, $1::date, 'desi-desserts')", [today])));
+check("a truck cannot see the whole park", /forbidden/.test(await err("select * from public.report_sales($1::date, $1::date)", [today])));
+await as("authenticated", customer);
+check("customers cannot see reports", /forbidden/.test(await err("select * from public.report_items($1::date, $1::date)", [today])));
+
+// wait times
+await as("anon");
+const waits = await rows("select * from public.stall_wait_times()");
+check("wait times: one row per truck, no guess without enough tickets", waits.length === catalog.stalls.length && waits.every((w) => w.typical_prep_mins === null));
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map((f) => ` - ${f}`).join("\n"));

@@ -49,6 +49,9 @@ const park = {
   contact_phone: null,
   hours_text: null,
   coupons_enabled: true,
+  // contract v1.6: both off until the owner turns them on in the admin panel
+  scheduled_orders_enabled: false,
+  ratings_public: false,
 };
 
 // ---------------------------------------------------------------- cravings
@@ -303,14 +306,20 @@ const banners = [
   sort_order: i + 1,
 }));
 
+// Contract v1.6 state that trucks change during service (pause, automatic hours) lives in the
+// JSON only, so re-running seed.sql never undoes a truck's pause or hours. No dish options or
+// hours are seeded: the owner and trucks set them in the admin panel / stall dashboard.
 const catalog = {
   contract_version: 1,
   park,
   cravings,
   banners,
-  stalls,
+  stalls: stalls.map((s) => ({ ...s, auto_hours: false, paused_until: null })),
+  stall_hours: [],
   menu_categories,
   menu_items,
+  menu_option_groups: [],
+  menu_options: [],
   placeholder_price_item_ids,
 };
 
