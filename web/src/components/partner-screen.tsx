@@ -1,11 +1,13 @@
 "use client";
 
-import { Armchair, BellRing, ChefHat, Ticket } from "lucide-react";
+import { Armchair, BellRing, ChefHat, Printer, Ticket } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { backend } from "@/lib/backend";
 import { friendlyError, minutesSince, money, plural, timeOfDay } from "@/lib/format";
 import { useCatalog, useNow, useSession, useStallTickets } from "@/lib/hooks";
 import type { StallTicket, TicketStatus } from "@/lib/types";
+import { printTicket, ticketDue } from "./partner-print";
+import { TodayPanel } from "./partner-today";
 import { StaffHeader, StaffSignIn } from "./staff-shell";
 import { Button, cn, Container, DietMark, Notice, Spinner, Switch } from "./ui";
 
@@ -37,14 +39,26 @@ function chime() {
   }
 }
 
-function TicketCard({ ticket, lane, now, onMove }: { ticket: StallTicket; lane: (typeof lanes)[number]; now: number; onMove: (status: TicketStatus) => Promise<void> }) {
+function TicketCard({
+  ticket,
+  lane,
+  now,
+  stallName,
+  onMove,
+}: {
+  ticket: StallTicket;
+  lane: (typeof lanes)[number];
+  now: number;
+  stallName: string;
+  onMove: (status: TicketStatus) => Promise<void>;
+}) {
   const [busy, setBusy] = useState<TicketStatus | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const waited = minutesSince(ticket.placed_at ?? ticket.created_at, now);
   const table = ticket.order.fulfilment === "table";
   const collect = ticket.order.payment_method === "pay_at_stall" && ticket.order.payment_status !== "paid";
   // What this stall collects: its dishes, minus its share of any coupon, plus its share of tax.
-  const due = ticket.subtotal_cents - (ticket.discount_cents ?? 0) + (ticket.tax_cents ?? 0);
+  const due = ticketDue(ticket);
 
   const move = async (status: TicketStatus) => {
     setBusy(status);
@@ -71,6 +85,15 @@ function TicketCard({ ticket, lane, now, onMove }: { ticket: StallTicket; lane: 
             <span className={cn("tabular-nums", waited >= 15 && lane.key !== "ready" && "text-chili-600")}>{waited} min ago</span>
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => printTicket(ticket, stallName)}
+          aria-label={`Print token ${ticket.token_no}`}
+          title="Print kitchen ticket"
+          className="hit-44 relative -mt-1 -mr-1 rounded-full p-2 text-ink-700 hover:bg-surface-1"
+        >
+          <Printer className="size-4.5" aria-hidden />
+        </button>
       </div>
 
       <ul className="mt-3 space-y-1.5 border-t border-line pt-3">
@@ -122,7 +145,7 @@ function TicketCard({ ticket, lane, now, onMove }: { ticket: StallTicket; lane: 
   );
 }
 
-function Board({ stallId }: { stallId: string }) {
+function Board({ stallId, stallName }: { stallId: string; stallName: string }) {
   const { tickets, error, reload } = useStallTickets(stallId);
   const now = useNow();
   const [lane, setLane] = useState<Lane>("placed");
@@ -229,7 +252,7 @@ function Board({ stallId }: { stallId: string }) {
               ) : (
                 <ul className="space-y-3">
                   {list.map((t) => (
-                    <TicketCard key={t.id} ticket={t} lane={l} now={now} onMove={(status) => move(t.id, status)} />
+                    <TicketCard key={t.id} ticket={t} lane={l} now={now} stallName={stallName} onMove={(status) => move(t.id, status)} />
                   ))}
                 </ul>
               )}
@@ -252,7 +275,7 @@ function Board({ stallId }: { stallId: string }) {
                   {t.order.customer_name} · {plural(t.order_items.reduce((n, i) => n + i.qty, 0), "item")}
                 </span>
                 <span className={cn("font-bold", t.status === "cancelled" ? "text-chili-600" : "text-ink-500")}>{t.status === "cancelled" ? "Cancelled" : "Handed over"}</span>
-                <span className="w-16 text-right tabular-nums">{money(t.subtotal_cents - (t.discount_cents ?? 0) + (t.tax_cents ?? 0))}</span>
+                <span className="w-16 text-right tabular-nums">{money(ticketDue(t))}</span>
               </li>
             ))}
           </ul>
@@ -313,7 +336,7 @@ function Stock({ stallId }: { stallId: string }) {
 export function PartnerScreen() {
   const { session, isLoading } = useSession("staff");
   const { index } = useCatalog();
-  const [tab, setTab] = useState<"orders" | "menu">("orders");
+  const [tab, setTab] = useState<"orders" | "today" | "menu">("orders");
   const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -369,6 +392,7 @@ export function PartnerScreen() {
             {(
               [
                 ["orders", "Orders", ChefHat],
+                ["today", "Today", Printer],
                 ["menu", "Menu stock", Ticket],
               ] as const
             ).map(([key, label]) => (
@@ -400,7 +424,13 @@ export function PartnerScreen() {
               </select>
             )}
           </div>
-          {tab === "orders" ? <Board stallId={stallId} /> : <Stock stallId={stallId} />}
+          {tab === "orders" ? (
+            <Board stallId={stallId} stallName={stall.name} />
+          ) : tab === "today" ? (
+            <TodayPanel stallId={stallId} stallName={stall.name} />
+          ) : (
+            <Stock stallId={stallId} />
+          )}
         </Container>
       )}
     </div>
