@@ -15,7 +15,8 @@
     "announcement": null,
     "contact_email": null,
     "contact_phone": null,
-    "hours_text": null
+    "hours_text": null,
+    "coupons_enabled": true
   },
   "cravings": [
     {

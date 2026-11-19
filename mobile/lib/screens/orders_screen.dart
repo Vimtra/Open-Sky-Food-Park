@@ -8,8 +8,11 @@ import '../ui/routes.dart';
 import 'order_screen.dart';
 
 class OrdersScreen extends StatelessWidget {
-  const OrdersScreen({super.key, this.onBrowse});
+  const OrdersScreen({super.key, this.onBrowse, this.inset = true});
   final VoidCallback? onBrowse;
+
+  /// False when shown under an app bar (from Help), so no status-bar gap or big title.
+  final bool inset;
 
   @override
   Widget build(BuildContext context) {
@@ -40,10 +43,9 @@ class OrdersScreen extends StatelessWidget {
     }
 
     return ListView(
-      padding: EdgeInsets.fromLTRB(16, top + 20, 16, 32),
+      padding: EdgeInsets.fromLTRB(16, inset ? top + 20 : 8, 16, 32),
       children: [
-        Text('Your orders', style: OsText.title),
-        const SizedBox(height: 16),
+        if (inset) ...[Text('Your orders', style: OsText.title), const SizedBox(height: 16)],
         for (final o in orders) ...[
           InkWell(
             onTap: () => openOrder(context, o.id),
@@ -79,7 +81,11 @@ class OrdersScreen extends StatelessWidget {
               ]),
             ),
           ),
-          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(onPressed: () => orderAgain(context, o), icon: const Icon(Icons.replay, size: 16), label: const Text('Order again')),
+          ),
+          const SizedBox(height: 4),
         ],
       ],
     );

@@ -492,7 +492,8 @@ class _SearchPillState extends State<_SearchPill> {
     final app = AppScope.of(context);
     final names = app.catalog.items
         .where((m) => m.isFeatured && app.vegOk(m) && (widget.stallId == null || m.stallId == widget.stallId))
-        .map((m) => m.name)
+        // Long combo names don't fit the bar; the hint drops the shared suffix (A's iOS fix).
+        .map((m) => m.name.replaceAll(RegExp(r'\s+with Fresh Live Pulka$', caseSensitive: false), ''))
         .toList();
     final hint = names.isEmpty ? 'dishes and trucks' : "'${names[_i % names.length]}'";
     final still = MediaQuery.disableAnimationsOf(context);
@@ -520,7 +521,8 @@ class _SearchPillState extends State<_SearchPill> {
                   position: Tween(begin: Offset(0, child.key == ValueKey(hint) ? 0.6 : -0.6), end: Offset.zero).animate(a),
                   child: FadeTransition(opacity: a, child: child),
                 ),
-                layoutBuilder: (cur, prev) => Stack(alignment: Alignment.centerLeft, children: [...prev, ?cur]),
+                // Only the outgoing name and the incoming one, never a pile of earlier ones mid-change.
+                layoutBuilder: (cur, prev) => Stack(alignment: Alignment.centerLeft, children: [if (prev.isNotEmpty) prev.last, ?cur]),
                 child: Text(hint, key: ValueKey(hint), maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: OsText.weight(OsText.body, 600).copyWith(color: OsColors.ink700, fontSize: 15)),
               ),
@@ -832,7 +834,8 @@ class _TruckRow extends StatelessWidget {
                 OpenStatus(stall),
                 const SizedBox(height: 4),
                 Text(stall.tagline ?? stall.cuisines.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: OsText.weight(OsText.label, 500).copyWith(color: OsColors.ink700)),
-                Text(stall.cuisines.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: OsText.small),
+                // Cuisines as a second line only when the tagline took the first.
+                if (stall.tagline != null) Text(stall.cuisines.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: OsText.small),
                 const SizedBox(height: 10),
                 Text('$itemCount dishes  ·  View menu', style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.ember700)),
               ]),

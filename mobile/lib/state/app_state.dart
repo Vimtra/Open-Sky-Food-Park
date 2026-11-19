@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/catalog.dart';
+import '../data/coupons.dart';
 import '../data/models.dart';
 
 const maxQty = 20;
@@ -200,8 +201,115 @@ class AppState extends ChangeNotifier {
     note = '';
     fulfilment = Fulfilment.pickup;
     paymentMethod = PaymentMethod.payAtStall;
+    couponCode = null;
+    supportRequests.clear();
     await _prefs.remove('tokens');
     _changed();
+  }
+
+  // ---------------------------------------------------------------- coupons (contract v1.5)
+
+  /// The code the customer applied, if any. Re-priced live as the cart changes.
+  String? couponCode;
+
+  /// Coupons the park lists under Offers.
+  List<Coupon> get offers => catalog.park.couponsEnabled ? catalog.coupons.where((c) => c.isOffer(DateTime.now())).toList() : const [];
+
+  int _timesUsed(String code, {bool mine = false}) => _orders
+      .where((o) => o.couponCode == code && o.status != OrderStatus.cancelled && (!mine || account != null))
+      .length;
+
+  /// Prices [code] against the orderable cart lines. Throws [CouponError].
+  CouponQuote quote(String code) {
+    final lines = <MenuItem, int>{
+      for (final g in groups)
+        for (final l in g.lines)
+          if (l.orderable) l.item: l.qty,
+    };
+    final wanted = code.trim().toUpperCase();
+    return quoteCoupon(
+      code: wanted,
+      couponsEnabled: catalog.park.couponsEnabled,
+      coupons: catalog.coupons,
+      lines: lines,
+      now: DateTime.now(),
+      timesUsed: _timesUsed(wanted),
+      timesUsedByMe: account == null ? null : _timesUsed(wanted, mine: true),
+    );
+  }
+
+  /// The applied coupon's current quote, or the reason it no longer applies.
+  ({CouponQuote? quote, String? error}) get couponState {
+    final code = couponCode;
+    if (code == null) return (quote: null, error: null);
+    try {
+      return (quote: quote(code), error: null);
+    } on CouponError catch (e) {
+      return (quote: null, error: e.message);
+    }
+  }
+
+  /// Returns null when applied, or the reason it can't be.
+  String? applyCoupon(String code) {
+    try {
+      final q = quote(code);
+      couponCode = q.coupon.code;
+      _changed();
+      return null;
+    } on CouponError catch (e) {
+      return e.message;
+    }
+  }
+
+  void removeCoupon() {
+    couponCode = null;
+    _changed();
+  }
+
+  // ---------------------------------------------------------------- order again (roadmap C1)
+
+  /// Refills the cart from [o]: every dish that is still on the menu, available and at an open truck,
+  /// at its current price. Returns how many were added and the names that could not be.
+  ({int added, List<String> skipped}) orderAgain(Order o) {
+    var added = 0;
+    final skipped = <String>[];
+    for (final so in o.stallOrders) {
+      for (final it in so.items) {
+        final m = it.menuItemId == null ? null : catalog.itemById[it.menuItemId];
+        final stall = m == null ? null : catalog.stallById[m.stallId];
+        if (m == null || stall == null || !m.isAvailable || !stall.isOpen) {
+          skipped.add(it.name);
+          continue;
+        }
+        _lines[m.id] = min(maxQty, qtyOf(m.id) + it.qty);
+        added += it.qty;
+      }
+    }
+    if (added > 0) _changed();
+    return (added: added, skipped: skipped);
+  }
+
+  // ---------------------------------------------------------------- contact (demo)
+
+  /// Messages sent from Contact us. Demo: kept on this phone; live they go to the website's
+  /// Admin → Messages through submit_support_request.
+  final List<Map<String, dynamic>> supportRequests = [];
+
+  String submitSupportRequest({required String topic, required String name, required String contact, String? orderNo, required String message}) {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rnd = Random();
+    final ref = 'HS-${List.generate(5, (_) => alphabet[rnd.nextInt(alphabet.length)]).join()}';
+    supportRequests.add({
+      'ref_no': ref,
+      'topic': topic,
+      'name': name.trim(),
+      'contact': contact.trim(),
+      'order_no': orderNo,
+      'message': message.trim(),
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    _changed();
+    return ref;
   }
 
   // ---------------------------------------------------------------- orders (demo)
@@ -212,20 +320,39 @@ class AppState extends ChangeNotifier {
   /// Places the cart as one order with one token per stall. Demo only: nothing leaves the phone.
   Order placeOrder() {
     final now = DateTime.now();
-    final bill = computeBill(itemTotalCents, catalog.park);
+    final applied = couponState.quote;
+    final bill = computeBill(itemTotalCents, catalog.park, discountCents: applied?.discountCents ?? 0);
     final rnd = Random();
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final orderNo = 'OS-${List.generate(5, (_) => alphabet[rnd.nextInt(alphabet.length)]).join()}';
     final tokens = Map<String, int>.from((jsonDecode(_prefs.getString('tokens') ?? '{}') as Map).cast<String, int>());
 
+    // Discount split as in place_order: by share of eligible dishes, the last truck takes the
+    // remainder; a truck-only coupon goes entirely to that truck.
+    final gs = groups;
+    var discountLeft = bill.discount;
+    final scope = applied?.coupon.stallId;
+    final shares = <String, int>{};
+    for (final (i, g) in gs.indexed) {
+      final last = i == gs.length - 1;
+      final share = applied == null || (scope != null && scope != g.stall.id)
+          ? 0
+          : (last || scope != null)
+              ? discountLeft
+              : ((bill.discount * g.subtotalCents) / (applied.eligibleCents == 0 ? 1 : applied.eligibleCents)).round().clamp(0, discountLeft);
+      discountLeft -= share;
+      shares[g.stall.id] = share;
+    }
+
     final stallOrders = [
-      for (final g in groups)
+      for (final g in gs)
         StallOrder(
           stallId: g.stall.id,
           stallName: g.stall.name,
           tokenNo: tokens[g.stall.id] = (tokens[g.stall.id] ?? 0) + 1,
           status: TicketStatus.placed,
           subtotalCents: g.subtotalCents,
+          discountCents: shares[g.stall.id] ?? 0,
           createdAt: now,
           items: [
             for (final l in g.lines)
@@ -243,6 +370,8 @@ class AppState extends ChangeNotifier {
       note: note.trim().isEmpty ? null : note.trim(),
       itemTotalCents: bill.items,
       taxCents: bill.tax,
+      discountCents: bill.discount,
+      couponCode: bill.discount > 0 ? applied?.coupon.code : null,
       serviceFeeCents: bill.fee,
       totalCents: bill.total,
       paymentMethod: paymentMethod,
@@ -254,6 +383,7 @@ class AppState extends ChangeNotifier {
     _orders.add(order);
     _lines.clear();
     note = '';
+    couponCode = null;
     _changed();
     return order;
   }
@@ -315,6 +445,8 @@ class AppState extends ChangeNotifier {
         'tour_seen': tourSeen,
         'recent_searches': recentSearches,
         'veg_only': vegOnly,
+        'coupon_code': couponCode,
+        'support_requests': supportRequests,
       }),
     );
     notifyListeners();
@@ -339,6 +471,8 @@ class AppState extends ChangeNotifier {
       tourSeen = j['tour_seen'] as bool? ?? false;
       recentSearches.addAll((j['recent_searches'] as List? ?? []).cast<String>());
       vegOnly = j['veg_only'] as bool? ?? false;
+      couponCode = j['coupon_code'] as String?;
+      supportRequests.addAll((j['support_requests'] as List? ?? []).cast<Map<String, dynamic>>());
     } catch (_) {
       // A saved state from an older build: start fresh rather than crash.
     }

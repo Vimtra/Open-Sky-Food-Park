@@ -4,7 +4,9 @@ import '../data/catalog.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
+import '../ui/routes.dart';
 import '../ui/widgets.dart';
+import 'contact_screen.dart';
 
 String orderHeadline(Order o) {
   switch (o.status) {
@@ -105,11 +107,30 @@ class OrderScreen extends StatelessWidget {
               Text('Bill', style: OsText.weight(OsText.label, 700)),
               const SizedBox(height: 8),
               _row('Item total', o.itemTotalCents),
+              if (o.discountCents > 0) _row('Coupon ${o.couponCode ?? ''}', -o.discountCents),
               if (o.taxCents > 0) _row('Sales tax', o.taxCents),
               if (o.serviceFeeCents > 0) _row('Service fee', o.serviceFeeCents),
               const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Divider()),
               _row('Total', o.totalCents, strong: true),
             ]),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => orderAgain(context, o),
+                icon: const Icon(Icons.replay, size: 18),
+                label: const Text('Order again'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              ),
+            ),
+          ]),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ContactScreen(initialTopic: 'order', orderNo: o.orderNo))),
+              icon: const Icon(Icons.support_agent, size: 18),
+              label: const Text('Get help with this order'),
+            ),
           ),
           if (app.canCancel(o)) ...[
             const SizedBox(height: 16),
@@ -266,4 +287,21 @@ class _TokenCard extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+/// Roadmap C1: refill the cart from a past order, then offer to open the cart.
+void orderAgain(BuildContext context, Order o) {
+  final r = AppScope.read(context).orderAgain(o);
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  final text = r.added == 0
+      ? "None of these dishes can be ordered right now."
+      : '${plural(r.added, 'item')} added to your cart'
+          '${r.skipped.isEmpty ? '' : '. Not available now: ${r.skipped.join(', ')}'}.';
+  messenger.showSnackBar(SnackBar(
+    content: Text(text),
+    duration: const Duration(seconds: 5),
+    action: r.added == 0 ? null : SnackBarAction(label: 'View cart', textColor: OsColors.ember400, onPressed: () => openCart(context)),
+  ));
 }

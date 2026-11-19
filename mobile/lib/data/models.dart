@@ -8,7 +8,19 @@ Diet? dietFrom(Object? v) => switch (v) { 'veg' => Diet.veg, 'egg' => Diet.egg, 
 String dietLabel(Diet d) => switch (d) { Diet.veg => 'Veg', Diet.egg => 'Egg', Diet.nonveg => 'Non-veg' };
 
 String? _str(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
-int _int(Object? v, [int fallback = 0]) => v is num ? v.toInt() : fallback;
+int _int(Object? v, [int fallback = 0]) => v is num ? v.toInt() : (v is String ? int.tryParse(v) ?? fallback : fallback);
+
+/// Postgres numeric columns can arrive as strings.
+double _num(Object? v) => v is num ? v.toDouble() : (v is String ? double.tryParse(v) ?? 0 : 0);
+
+/// The database writes enums in snake_case ("pay_at_stall"); the demo store wrote camelCase.
+T _enum<T extends Enum>(List<T> values, Object? raw, T fallback) {
+  final key = (raw as String? ?? '').replaceAll('_', '').toLowerCase();
+  return values.where((v) => v.name.toLowerCase() == key).firstOrNull ?? fallback;
+}
+
+/// Back to the database's spelling, for rpc payloads.
+String snake(Enum e) => e.name.replaceAllMapped(RegExp('[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
 bool _bool(Object? v, [bool fallback = false]) => v is bool ? v : fallback;
 
 class Park {
@@ -17,9 +29,10 @@ class Park {
         tagline = _str(j['tagline']),
         address = _str(j['address']),
         instagram = _str(j['instagram']),
-        taxPercent = (j['tax_percent'] as num?)?.toDouble() ?? 0,
+        taxPercent = _num(j['tax_percent']),
         serviceFeeCents = _int(j['service_fee_cents']),
         orderingEnabled = _bool(j['ordering_enabled'], true),
+        couponsEnabled = _bool(j['coupons_enabled']),
         tableServiceEnabled = _bool(j['table_service_enabled']),
         announcement = _str(j['announcement']),
         contactEmail = _str(j['contact_email']),
@@ -31,6 +44,9 @@ class Park {
   final double taxPercent;
   final int serviceFeeCents;
   final bool orderingEnabled, tableServiceEnabled;
+
+  /// Contract v1.5: when false the cart hides the coupon box.
+  final bool couponsEnabled;
 }
 
 class Stall {
@@ -207,6 +223,7 @@ class StallOrder {
     required this.tokenNo,
     required this.status,
     required this.subtotalCents,
+    this.discountCents = 0,
     required this.items,
     required this.createdAt,
     this.readyAt,
@@ -214,16 +231,20 @@ class StallOrder {
 
   StallOrder.fromJson(Map<String, dynamic> j)
       : stallId = j['stall_id'] as String,
-        stallName = j['stall_name'] as String? ?? '',
+        stallName = j['stall_name'] as String? ?? ((j['stall'] as Map?)?['name'] as String?) ?? '',
         tokenNo = _int(j['token_no']),
-        status = TicketStatus.values.byName(j['status'] as String),
+        status = _enum(TicketStatus.values, j['status'], TicketStatus.placed),
         subtotalCents = _int(j['subtotal_cents']),
+        discountCents = _int(j['discount_cents']),
         items = (j['order_items'] as List).map((e) => OrderItem.fromJson(e as Map<String, dynamic>)).toList(),
         createdAt = DateTime.parse(j['created_at'] as String),
         readyAt = j['ready_at'] == null ? null : DateTime.parse(j['ready_at'] as String);
 
   final String stallId, stallName;
   final int tokenNo, subtotalCents;
+
+  /// This truck's share of the coupon discount (contract v1.5).
+  final int discountCents;
   TicketStatus status;
   final List<OrderItem> items;
   final DateTime createdAt;
@@ -235,6 +256,7 @@ class StallOrder {
         'token_no': tokenNo,
         'status': status.name,
         'subtotal_cents': subtotalCents,
+        'discount_cents': discountCents,
         'order_items': items.map((e) => e.toJson()).toList(),
         'created_at': createdAt.toIso8601String(),
         'ready_at': readyAt?.toIso8601String(),
@@ -251,6 +273,8 @@ class Order {
     required this.note,
     required this.itemTotalCents,
     required this.taxCents,
+    this.discountCents = 0,
+    this.couponCode,
     required this.serviceFeeCents,
     required this.totalCents,
     required this.paymentMethod,
@@ -263,15 +287,17 @@ class Order {
       : id = j['id'] as String,
         orderNo = j['order_no'] as String,
         customerName = j['customer_name'] as String,
-        fulfilment = Fulfilment.values.byName(j['fulfilment'] as String),
+        fulfilment = _enum(Fulfilment.values, j['fulfilment'], Fulfilment.pickup),
         tableNo = j['table_no'] as String?,
         note = j['note'] as String?,
         itemTotalCents = _int(j['item_total_cents']),
         taxCents = _int(j['tax_cents']),
+        discountCents = _int(j['discount_cents']),
+        couponCode = j['coupon_code'] as String?,
         serviceFeeCents = _int(j['service_fee_cents']),
         totalCents = _int(j['total_cents']),
-        paymentMethod = PaymentMethod.values.byName(j['payment_method'] as String),
-        status = OrderStatus.values.byName(j['status'] as String),
+        paymentMethod = _enum(PaymentMethod.values, j['payment_method'], PaymentMethod.payAtStall),
+        status = _enum(OrderStatus.values, j['status'], OrderStatus.active),
         createdAt = DateTime.parse(j['created_at'] as String),
         stallOrders = (j['stall_orders'] as List).map((e) => StallOrder.fromJson(e as Map<String, dynamic>)).toList();
 
@@ -279,6 +305,10 @@ class Order {
   final Fulfilment fulfilment;
   final String? tableNo, note;
   final int itemTotalCents, taxCents, serviceFeeCents, totalCents;
+
+  /// Coupon discount and code (contract v1.5). Total = items − discount + tax + fee.
+  final int discountCents;
+  final String? couponCode;
   final PaymentMethod paymentMethod;
   OrderStatus status;
   final DateTime createdAt;
@@ -293,6 +323,8 @@ class Order {
         'note': note,
         'item_total_cents': itemTotalCents,
         'tax_cents': taxCents,
+        'discount_cents': discountCents,
+        'coupon_code': couponCode,
         'service_fee_cents': serviceFeeCents,
         'total_cents': totalCents,
         'payment_method': paymentMethod.name,

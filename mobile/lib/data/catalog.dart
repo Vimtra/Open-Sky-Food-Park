@@ -2,12 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show rootBundle;
 
+import 'coupons.dart';
 import 'models.dart';
 
 /// The menu, loaded once and indexed for the screens. In demo mode it comes from the bundled
 /// assets/data/catalog.json (a copy of shared/seed/catalog.json); a Supabase source comes later (B2).
 class Catalog {
-  Catalog._(this.park, this.stalls, this.categories, this.items, this.cravings, this.banners, this.placeholderPriceIds) {
+  Catalog._(this.park, this.stalls, this.categories, this.items, this.cravings, this.banners, this.placeholderPriceIds, this.coupons) {
     for (final s in stalls) {
       stallById[s.id] = s;
       stallBySlug[s.slug] = s;
@@ -30,6 +31,10 @@ class Catalog {
   final List<PromoBanner> banners;
   final Set<String> placeholderPriceIds;
 
+  /// Coupons the app can apply. The bundled demo catalog has none (they are created in the admin
+  /// panel and come from Supabase once the app is connected).
+  final List<Coupon> coupons;
+
   final stallById = <String, Stall>{};
   final stallBySlug = <String, Stall>{};
   final categoryById = <String, MenuCategory>{};
@@ -37,8 +42,11 @@ class Catalog {
   final itemById = <String, MenuItem>{};
   final itemsByStall = <String, List<MenuItem>>{};
 
-  static Future<Catalog> loadBundled() async {
-    final j = jsonDecode(await rootBundle.loadString('assets/data/catalog.json')) as Map<String, dynamic>;
+  static Future<Catalog> loadBundled() async =>
+      Catalog.fromJson(jsonDecode(await rootBundle.loadString('assets/data/catalog.json')) as Map<String, dynamic>);
+
+  /// From catalog.json, or from the same tables read live from Supabase (see live.dart).
+  static Catalog fromJson(Map<String, dynamic> j) {
     List<T> list<T>(String key, T Function(Map<String, dynamic>) f) =>
         (j[key] as List? ?? const []).map((e) => f(e as Map<String, dynamic>)).toList();
     int bySort(dynamic a, dynamic b) => (a.sortOrder as int).compareTo(b.sortOrder as int);
@@ -51,6 +59,7 @@ class Catalog {
       list('cravings', Craving.fromJson)..sort(bySort),
       list('banners', PromoBanner.fromJson).where((b) => b.isActive).toList()..sort(bySort),
       (j['placeholder_price_item_ids'] as List? ?? const []).cast<String>().toSet(),
+      list('coupons', Coupon.fromJson),
     );
   }
 
@@ -78,7 +87,9 @@ String money(int cents) {
 String plural(int n, String one, [String? many]) => '$n ${n == 1 ? one : (many ?? '${one}s')}';
 
 /// Same rounding as the website and the database: tax = round(items × percent / 100).
-({int items, int tax, int fee, int total}) computeBill(int itemTotalCents, Park park) {
-  final tax = (itemTotalCents * park.taxPercent / 100).round();
-  return (items: itemTotalCents, tax: tax, fee: park.serviceFeeCents, total: itemTotalCents + tax + park.serviceFeeCents);
+/// Contract v1.5: tax is charged on (items − discount); total = items − discount + tax + fee.
+({int items, int discount, int tax, int fee, int total}) computeBill(int itemTotalCents, Park park, {int discountCents = 0}) {
+  final discount = discountCents.clamp(0, itemTotalCents);
+  final tax = ((itemTotalCents - discount) * park.taxPercent / 100).round();
+  return (items: itemTotalCents, discount: discount, tax: tax, fee: park.serviceFeeCents, total: itemTotalCents - discount + tax + park.serviceFeeCents);
 }

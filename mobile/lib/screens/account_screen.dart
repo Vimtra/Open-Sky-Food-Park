@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
+import 'contact_screen.dart';
+import 'help_screen.dart';
 import 'onboarding_screen.dart';
 import 'settings_screen.dart';
 
@@ -146,6 +148,11 @@ class _SignInState extends State<_SignIn> {
         if (AppState.demo)
           Text('Demo: no code is sent and nothing leaves this phone. Already signed up here with the same details? This signs you back in.',
               textAlign: TextAlign.center, style: OsText.small),
+        const SizedBox(height: 20),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const HelpScreen())), child: const Text('Help & Support')),
+          TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ContactScreen())), child: const Text('Contact us')),
+        ]),
       ],
     );
   }
@@ -250,6 +257,21 @@ class _Profile extends StatelessWidget {
             title: 'How the app works',
             subtitle: 'Replay the welcome tour',
             onTap: () => afterSignIn(context, isNew: true),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        _Section(children: [
+          _Tile(
+            icon: Icons.help_outline,
+            title: 'Help & Support',
+            subtitle: 'Ordering, tokens, payment, cancelling',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const HelpScreen())),
+          ),
+          _Tile(
+            icon: Icons.mail_outline,
+            title: 'Contact us',
+            subtitle: 'Message the park team',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ContactScreen())),
           ),
         ]),
         const SizedBox(height: 20),

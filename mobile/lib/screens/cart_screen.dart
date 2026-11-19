@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../data/catalog.dart';
+import '../data/coupons.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
@@ -77,7 +78,7 @@ class _CartScreenState extends State<CartScreen> {
         ),
       );
     } else {
-      final bill = computeBill(app.itemTotalCents, park);
+      final bill = computeBill(app.itemTotalCents, park, discountCents: app.couponState.quote?.discountCents ?? 0);
       final tableOn = park.tableServiceEnabled && app.fulfilment == Fulfilment.table;
       final nameErr = _touched && _name.text.trim().isEmpty ? 'Add your name so the truck can call it out.' : null;
       final tableErr = _touched && tableOn && _table.text.trim().isEmpty ? 'Enter the number on your table.' : null;
@@ -142,12 +143,14 @@ class _CartScreenState extends State<CartScreen> {
             body: AppState.demo ? 'Demo: no card is charged.' : 'Card, Apple Pay or Google Pay.',
             onTap: () => app.setCheckout(payment: PaymentMethod.online),
           ),
+          if (park.couponsEnabled) ...[const SizedBox(height: 20), const _CouponBox()],
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(color: OsColors.surface1, borderRadius: BorderRadius.circular(OsRadius.lg)),
             child: Column(children: [
               _billRow('Item total (${plural(app.count, 'item')})', bill.items),
+              if (bill.discount > 0) _billRow('Coupon ${app.couponState.quote?.coupon.code ?? ''}', -bill.discount, saving: true),
               if (bill.tax > 0) _billRow('Sales tax (${park.taxPercent}%)', bill.tax),
               if (bill.fee > 0) _billRow('Service fee', bill.fee),
               const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider()),
@@ -160,7 +163,7 @@ class _CartScreenState extends State<CartScreen> {
       );
     }
 
-    final bill = computeBill(app.itemTotalCents, park);
+    final bill = computeBill(app.itemTotalCents, park, discountCents: app.couponState.quote?.discountCents ?? 0);
     return Scaffold(
       appBar: widget.standalone ? AppBar() : null,
       body: content,
@@ -192,11 +195,15 @@ class _CartScreenState extends State<CartScreen> {
     );
   }
 
-  Widget _billRow(String label, int cents, {bool strong = false}) => Padding(
+  Widget _billRow(String label, int cents, {bool strong = false, bool saving = false}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Row(children: [
-          Expanded(child: Text(label, style: strong ? OsText.bodyStrong : OsText.weight(OsText.label, 500).copyWith(color: OsColors.ink700))),
-          Text(money(cents), style: (strong ? OsText.bodyStrong : OsText.weight(OsText.label, 600)).copyWith(fontFeatures: OsText.tabular)),
+          Expanded(
+            child: Text(label,
+                style: strong ? OsText.bodyStrong : OsText.weight(OsText.label, 500).copyWith(color: saving ? OsColors.leaf700 : OsColors.ink700)),
+          ),
+          Text(money(cents),
+              style: (strong ? OsText.bodyStrong : OsText.weight(OsText.label, 600)).copyWith(fontFeatures: OsText.tabular, color: saving ? OsColors.leaf700 : null)),
         ]),
       );
 
@@ -308,4 +315,131 @@ class _Choice extends StatelessWidget {
           ),
         ),
       );
+}
+
+
+/// Coupon entry for the cart (contract v1.5): type a code, or pick one the park lists under Offers.
+/// The preview uses the same rules as the server, which re-checks the code when the order is placed.
+class _CouponBox extends StatefulWidget {
+  const _CouponBox();
+  @override
+  State<_CouponBox> createState() => _CouponBoxState();
+}
+
+class _CouponBoxState extends State<_CouponBox> {
+  final _code = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  void _apply(AppState app, String code) {
+    if (code.trim().isEmpty) return;
+    final problem = app.applyCoupon(code);
+    setState(() => _error = problem);
+    if (problem == null) {
+      _code.clear();
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final state = app.couponState;
+    final q = state.quote;
+    final offers = app.offers.where((o) => o.code != app.couponCode).toList();
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Coupon', style: OsText.subheading),
+      const SizedBox(height: 10),
+      if (app.couponCode != null)
+        AnimatedContainer(
+          duration: OsMotion.popover,
+          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+          decoration: BoxDecoration(
+            color: q != null ? OsColors.leaf50 : OsColors.chili50,
+            borderRadius: BorderRadius.circular(OsRadius.lg),
+            border: Border.all(color: q != null ? OsColors.leaf600 : OsColors.chili600),
+          ),
+          child: Row(children: [
+            Icon(q != null ? Icons.local_offer : Icons.error_outline, color: q != null ? OsColors.leaf700 : OsColors.chili600, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(app.couponCode!, style: OsText.weight(OsText.label, 800).copyWith(letterSpacing: 0.6)),
+                Text(
+                  q != null ? 'You save ${money(q.discountCents)}${q.coupon.title.isNotEmpty ? ' · ${q.coupon.title}' : ''}' : state.error ?? '',
+                  style: OsText.weight(OsText.small, 600).copyWith(color: q != null ? OsColors.leaf700 : OsColors.chili600),
+                ),
+              ]),
+            ),
+            IconButton(tooltip: 'Remove coupon', icon: const Icon(Icons.close, size: 18), onPressed: app.removeCoupon),
+          ]),
+        )
+      else ...[
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _code,
+              textCapitalization: TextCapitalization.characters,
+              autocorrect: false,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (v) => _apply(app, v),
+              onChanged: (_) => _error == null ? null : setState(() => _error = null),
+              decoration: InputDecoration(
+                hintText: 'Coupon code',
+                prefixIcon: const Icon(Icons.local_offer_outlined, color: OsColors.ink500),
+                errorText: _error,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton(onPressed: () => _apply(app, _code.text), style: OutlinedButton.styleFrom(minimumSize: const Size(88, 52)), child: const Text('Apply')),
+        ]),
+      ],
+      if (offers.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        Text('Offers', style: OsText.weight(OsText.label, 800)),
+        const SizedBox(height: 8),
+        for (final o in offers) _Offer(coupon: o, stallName: o.stallId == null ? null : app.catalog.stallById[o.stallId]?.name, onApply: () => _apply(app, o.code)),
+      ],
+    ]);
+  }
+}
+
+class _Offer extends StatelessWidget {
+  const _Offer({required this.coupon, required this.stallName, required this.onApply});
+  final Coupon coupon;
+  final String? stallName;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = coupon;
+    final amount = c.kind == CouponKind.percent ? '${c.value}% off' : '${money(c.value)} off';
+    final terms = [
+      amount + (c.maxDiscountCents != null && c.kind == CouponKind.percent ? ' up to ${money(c.maxDiscountCents!)}' : ''),
+      if (c.minOrderCents > 0) 'on ${money(c.minOrderCents)}+',
+      if (stallName != null) 'at $stallName',
+    ].join(' ');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(OsRadius.lg), border: Border.all(color: OsColors.line)),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(c.title.isNotEmpty ? c.title : c.code, style: OsText.weight(OsText.label, 800)),
+            Text('${c.code} · $terms', style: OsText.weight(OsText.small, 600).copyWith(color: OsColors.ember700)),
+            if (c.description != null && c.description!.trim().isNotEmpty) Text(c.description!, style: OsText.small),
+          ]),
+        ),
+        TextButton(onPressed: onApply, child: const Text('Apply')),
+      ]),
+    );
+  }
 }
