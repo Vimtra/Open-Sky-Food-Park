@@ -2,8 +2,9 @@
 // Schema, security rules and the rpc functions called here live in supabase/migrations.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Catalog, Coupon, CouponWithUse, Order, Park, Profile, Session, StallLogin, StallTicket, SupportRequest } from "../types";
-import { slugify, type Backend, type Unsubscribe } from "./types";
+import { addDays, parkDate } from "../reports";
+import type { Catalog, Coupon, CouponWithUse, HourRow, ItemSalesRow, Order, Park, Profile, Refund, SalesRow, Session, StallLogin, StallTicket, SupportRequest } from "../types";
+import { filterOrders, slugify, type Backend, type Unsubscribe } from "./types";
 
 const STALL_SUMMARY = "id,slug,name,location_label,logo_url,phone";
 const ORDER_SELECT = `*, stall_orders(*, order_items(*), stall:stalls(${STALL_SUMMARY}))`;
@@ -61,11 +62,14 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
   };
 
   /** Calls /api/admin/stall-logins as the signed-in admin. */
-  const adminApi = async (method: "GET" | "POST", body?: unknown) => {
+  const adminApi = (method: "GET" | "POST", body?: unknown) => serverApi("/api/admin/stall-logins", method, body);
+
+  /** Calls one of this site's server routes with the signed-in user's token. */
+  const serverApi = async (path: string, method: "GET" | "POST", body?: unknown) => {
     const { data } = await db.auth.getSession();
     const token = data.session?.access_token;
     if (!token) throw new Error("sign_in_required");
-    const res = await fetch("/api/admin/stall-logins", {
+    const res = await fetch(path, {
       method,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: body ? JSON.stringify(body) : undefined,
@@ -233,8 +237,14 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       ) as StallTicket[];
     },
 
-    async setStallOrderStatus(stallOrderId, status) {
-      check(await db.rpc("set_stall_order_status", { p_stall_order_id: stallOrderId, p_status: status }));
+    async setStallOrderStatus(stallOrderId, status, prepMins) {
+      check(
+        await db.rpc("set_stall_order_status", {
+          p_stall_order_id: stallOrderId,
+          p_status: status,
+          ...(prepMins !== undefined ? { p_prep_mins: prepMins } : {}),
+        }),
+      );
     },
 
     async setItemAvailable(itemId, available) {
@@ -250,6 +260,56 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       return sortOrders(
         unwrap(await db.from("orders").select(ORDER_SELECT).order("created_at", { ascending: false }).limit(200)) as Order[],
       );
+    },
+
+    async searchOrders(filter) {
+      let q = db.from("orders").select(ORDER_SELECT).order("created_at", { ascending: false }).limit(500);
+      // A day of slack either side of the park dates; filterOrders() then applies the exact park-time rules.
+      if (filter.from) q = q.gte("created_at", `${addDays(filter.from, -1)}T00:00:00Z`);
+      if (filter.to) q = q.lt("created_at", `${addDays(filter.to, 2)}T00:00:00Z`);
+      if (filter.status && filter.status !== "all") q = q.eq("status", filter.status);
+      if (filter.payment === "online" || filter.payment === "pay_at_stall") q = q.eq("payment_method", filter.payment);
+      if (filter.payment === "refunds") q = q.gt("refunded_cents", 0);
+      const text = (filter.text ?? "").trim().replace(/[^\p{L}\p{N} +#-]/gu, "");
+      const digits = text.replace(/\D/g, "");
+      if (text && !text.startsWith("#")) {
+        const ors = [`order_no.ilike.%${text}%`, `customer_name.ilike.%${text}%`];
+        if (digits.length >= 3) ors.push(`customer_phone.ilike.%${digits}%`);
+        q = q.or(ors.join(","));
+      }
+      const orders = sortOrders(unwrap(await q) as Order[]);
+      return filterOrders(orders, filter, (iso) => parkDate(iso));
+    },
+
+    async listRefunds(orderId) {
+      let q = db.from("refunds").select("*").order("created_at", { ascending: false }).limit(200);
+      if (orderId) q = q.eq("order_id", orderId);
+      return unwrap(await q) as Refund[];
+    },
+
+    async requestRefund(orderId, stallOrderId, amountCents, reason) {
+      const id = unwrap(
+        await db.rpc("request_refund", { p_order_id: orderId, p_stall_order_id: stallOrderId, p_amount_cents: amountCents, p_reason: reason }),
+      ) as string;
+      const result = await serverApi("/api/payments/refunds", "POST", { refund_id: id });
+      if (result.failed > 0) throw new Error(result.errors?.[0] ?? "Stripe did not accept the refund.");
+    },
+
+    async processRefunds() {
+      const result = await serverApi("/api/payments/refunds", "POST", {});
+      return { sent: result.sent ?? 0, failed: result.failed ?? 0 };
+    },
+
+    async reportSales(from, to, stallId = null) {
+      return unwrap(await db.rpc("report_sales", { p_from: from, p_to: to, p_stall_id: stallId })) as SalesRow[];
+    },
+
+    async reportItems(from, to, stallId = null) {
+      return unwrap(await db.rpc("report_items", { p_from: from, p_to: to, p_stall_id: stallId })) as ItemSalesRow[];
+    },
+
+    async reportHours(from, to, stallId = null) {
+      return unwrap(await db.rpc("report_hours", { p_from: from, p_to: to, p_stall_id: stallId })) as HourRow[];
     },
 
     async saveStall(row) {

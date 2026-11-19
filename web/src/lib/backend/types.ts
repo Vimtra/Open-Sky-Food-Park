@@ -3,6 +3,11 @@ import type {
   Catalog,
   Coupon,
   CouponQuote,
+  HourRow,
+  ItemSalesRow,
+  OrderStatus,
+  Refund,
+  SalesRow,
   CouponWithUse,
   MenuCategory,
   MenuItem,
@@ -42,6 +47,41 @@ export type CategoryInput = Partial<MenuCategory> & Pick<MenuCategory, "stall_id
 export type ItemInput = Partial<MenuItem> & Pick<MenuItem, "stall_id" | "category_id" | "name" | "price_cents">;
 export type BannerInput = Partial<Banner> & Pick<Banner, "title">;
 export type CouponInput = Partial<Coupon> & Pick<Coupon, "code" | "title" | "kind" | "value">;
+
+/** Admin order search. Dates are "YYYY-MM-DD" in the park's time zone. */
+export interface OrderSearch {
+  text?: string;
+  status?: OrderStatus | "all";
+  stall_id?: string | null;
+  payment?: "all" | "online" | "pay_at_stall" | "refunds";
+  from?: string | null;
+  to?: string | null;
+}
+
+/** Applies an OrderSearch to orders already loaded (both backends use it, so results match). */
+export function filterOrders(orders: Order[], f: OrderSearch, dayOf: (iso: string) => string): Order[] {
+  const text = (f.text ?? "").trim().toLowerCase();
+  const digits = text.replace(/\D/g, "");
+  return orders.filter((o) => {
+    if (f.status && f.status !== "all" && o.status !== f.status) return false;
+    if (f.stall_id && !o.stall_orders.some((s) => s.stall_id === f.stall_id)) return false;
+    if (f.payment === "online" && o.payment_method !== "online") return false;
+    if (f.payment === "pay_at_stall" && o.payment_method !== "pay_at_stall") return false;
+    if (f.payment === "refunds" && !((o.refunded_cents ?? 0) > 0 || o.payment_status === "refunded")) return false;
+    const day = dayOf(o.created_at);
+    if (f.from && day < f.from) return false;
+    if (f.to && day > f.to) return false;
+    if (text) {
+      const hit =
+        o.order_no.toLowerCase().includes(text) ||
+        o.customer_name.toLowerCase().includes(text) ||
+        (digits.length >= 3 && (o.customer_phone ?? "").replace(/\D/g, "").includes(digits)) ||
+        o.stall_orders.some((s) => `#${s.token_no}` === text);
+      if (!hit) return false;
+    }
+    return true;
+  });
+}
 
 /**
  * Everything the UI needs from the data layer. Two implementations:
@@ -85,7 +125,8 @@ export interface Backend {
 
   // stall staff
   listStallTickets(stallId: string): Promise<StallTicket[]>;
-  setStallOrderStatus(stallOrderId: string, status: TicketStatus): Promise<void>;
+  /** prepMins (1–120) is stored when accepting (status "preparing"): the customer sees "Ready by …". */
+  setStallOrderStatus(stallOrderId: string, status: TicketStatus, prepMins?: number): Promise<void>;
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   setStallOpen(stallId: string, open: boolean): Promise<void>;
 
@@ -101,6 +142,18 @@ export interface Backend {
 
   // admin
   listAllOrders(): Promise<Order[]>;
+  /** Up to 500 orders matching the filter, newest first. */
+  searchOrders(filter: OrderSearch): Promise<Order[]>;
+  /** Refunds for one order, or every refund (newest first, up to 200). */
+  listRefunds(orderId?: string): Promise<Refund[]>;
+  /** Admin: refund part or all of a paid online order, and send it to Stripe straight away. */
+  requestRefund(orderId: string, stallOrderId: string | null, amountCents: number, reason: string): Promise<void>;
+  /** Admin: send every queued refund (e.g. from trucks rejecting paid orders) to Stripe. */
+  processRefunds(): Promise<{ sent: number; failed: number }>;
+  /** Reports (admin: stallId null for the whole park; staff: their own truck). */
+  reportSales(from: string, to: string, stallId?: string | null): Promise<SalesRow[]>;
+  reportItems(from: string, to: string, stallId?: string | null): Promise<ItemSalesRow[]>;
+  reportHours(from: string, to: string, stallId?: string | null): Promise<HourRow[]>;
   listCoupons(): Promise<CouponWithUse[]>;
   saveCoupon(row: CouponInput): Promise<void>;
   deleteCoupon(id: string): Promise<void>;

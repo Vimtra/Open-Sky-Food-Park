@@ -4,19 +4,21 @@
 
 import seed from "@/data/catalog.json";
 import { computeBill } from "../format";
+import { computeHourRows, computeItemRows, computeSalesRows, parkDate } from "../reports";
 import type {
   Catalog,
   Coupon,
   Order,
   OrderItem,
   Profile,
+  Refund,
   Session,
   StallOrder,
   StallTicket,
   SupportRequest,
   TicketStatus,
 } from "../types";
-import { slugify, type Area, type Backend, type Unsubscribe } from "./types";
+import { filterOrders, slugify, type Area, type Backend, type Unsubscribe } from "./types";
 
 type Topic = "catalog" | "orders" | "session" | "support" | "coupons";
 
@@ -26,6 +28,7 @@ const K = {
   support: "osfp.demo.support",
   coupons: "osfp.demo.coupons",
   stallLogins: "osfp.demo.stall-logins",
+  refunds: "osfp.demo.refunds",
   session: (area: Area) => `osfp.demo.session.${area}`,
 };
 
@@ -98,6 +101,50 @@ export function createDemoBackend(): Backend {
     if (open) return;
     order.status = order.stall_orders.some((s) => s.status === "completed") ? "completed" : "cancelled";
   };
+
+  // ---- refunds: same rules as _queue_refund / record_refund_result in 0006_v16.sql.
+  // Demo has no Stripe, so "sending" a refund always succeeds.
+  const loadRefunds = () => read<Refund[]>(K.refunds, []);
+  const saveRefunds = (rows: Refund[]) => write(K.refunds, rows);
+  const queueRefund = (order: Order, stallOrderId: string | null, amount: number, reason: string) => {
+    if (order.payment_method !== "online" || order.payment_status === "unpaid") return null;
+    const rows = loadRefunds();
+    const open = rows.filter((r) => r.order_id === order.id && r.status !== "failed").reduce((n, r) => n + r.amount_cents, 0);
+    const cents = Math.min(amount, order.total_cents - open);
+    if (cents <= 0) return null;
+    const row: Refund = {
+      id: uid(),
+      order_id: order.id,
+      stall_order_id: stallOrderId,
+      amount_cents: cents,
+      reason,
+      status: "pending",
+      stripe_refund_id: null,
+      error: null,
+      created_at: now(),
+      processed_at: null,
+    };
+    saveRefunds([row, ...rows]);
+    return row;
+  };
+  const sendRefund = (orders: Order[], refundId: string) => {
+    const rows = loadRefunds();
+    const r = rows.find((x) => x.id === refundId);
+    if (!r || r.status !== "pending") return false;
+    r.status = "succeeded";
+    r.stripe_refund_id = `re_demo_${r.id.slice(0, 8)}`;
+    r.processed_at = now();
+    saveRefunds(rows);
+    const order = orders.find((o) => o.id === r.order_id);
+    if (order) {
+      order.refunded_cents = (order.refunded_cents ?? 0) + r.amount_cents;
+      if (order.refunded_cents >= order.total_cents) order.payment_status = "refunded";
+      const so = order.stall_orders.find((s) => s.id === r.stall_order_id);
+      if (so) so.refunded_cents = (so.refunded_cents ?? 0) + r.amount_cents;
+    }
+    return true;
+  };
+  const stallDue = (so: StallOrder) => so.subtotal_cents - (so.discount_cents ?? 0) + (so.tax_cents ?? 0);
 
   // ---- sessions
   const loadSession = (area: Area) => read<Session | null>(K.session(area), null);
@@ -392,6 +439,7 @@ export function createDemoBackend(): Backend {
         }
       });
       order.status = "cancelled";
+      queueRefund(order, null, Number.MAX_SAFE_INTEGER, "Order cancelled");
       saveOrders(orders);
     },
 
@@ -445,7 +493,7 @@ export function createDemoBackend(): Backend {
       return tickets;
     },
 
-    async setStallOrderStatus(stallOrderId, status) {
+    async setStallOrderStatus(stallOrderId, status, prepMins) {
       await sleep(200);
       const orders = loadOrders();
       const order = orders.find((o) => o.stall_orders.some((s) => s.id === stallOrderId)) ?? fail("not_found");
@@ -457,11 +505,21 @@ export function createDemoBackend(): Backend {
         ready: ["completed"],
       };
       if (!allowed[so.status]?.includes(status)) fail("invalid_transition");
+      if (prepMins !== undefined && (!Number.isInteger(prepMins) || prepMins < 1 || prepMins > 120)) fail("bad_prep_time");
       so.status = status;
-      if (status === "preparing") so.accepted_at = now();
+      if (status === "preparing") {
+        so.accepted_at = now();
+        const prep = prepMins ?? loadCatalog().stalls.find((s) => s.id === so.stall_id)?.avg_prep_mins ?? null;
+        so.prep_mins = prep;
+        so.ready_by = prep ? new Date(Date.now() + prep * 60000).toISOString() : null;
+      }
       if (status === "ready") so.ready_at = now();
       if (status === "completed" || status === "cancelled") so.completed_at = now();
       syncOrderStatus(order);
+      if (status === "cancelled") {
+        queueRefund(order, so.id, stallDue(so), "Rejected by the truck");
+        if (order.status === "cancelled") queueRefund(order, null, Number.MAX_SAFE_INTEGER, "Order cancelled");
+      }
       saveOrders(orders);
     },
 
@@ -488,6 +546,69 @@ export function createDemoBackend(): Backend {
       await sleep();
       requireAdmin();
       return loadOrders();
+    },
+
+    async searchOrders(filter) {
+      await sleep();
+      requireAdmin();
+      const tz = loadCatalog().park.timezone;
+      return filterOrders(loadOrders(), filter, (iso) => parkDate(iso, tz)).slice(0, 500);
+    },
+
+    async listRefunds(orderId) {
+      await sleep(80);
+      const admin = loadSession("staff")?.profile.role === "admin";
+      const customer = loadSession("customer");
+      const mine = new Set(loadOrders().filter((o) => o.customer_id === customer?.user_id).map((o) => o.id));
+      return loadRefunds()
+        .filter((r) => (orderId ? r.order_id === orderId : true) && (admin || mine.has(r.order_id)))
+        .slice(0, 200);
+    },
+
+    async requestRefund(orderId, stallOrderId, amountCents, reason) {
+      await sleep(400);
+      requireAdmin();
+      const orders = loadOrders();
+      const order = orders.find((o) => o.id === orderId) ?? fail("not_found");
+      if (order.payment_method !== "online" || order.payment_status === "unpaid") fail("not_refundable");
+      if (stallOrderId && !order.stall_orders.some((s) => s.id === stallOrderId)) fail("not_found");
+      const open = loadRefunds().filter((r) => r.order_id === orderId && r.status !== "failed").reduce((n, r) => n + r.amount_cents, 0);
+      if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > order.total_cents - open) fail("bad_amount");
+      const row = queueRefund(order, stallOrderId, amountCents, reason.trim() || "Refund") ?? fail("bad_amount");
+      sendRefund(orders, row.id);
+      saveOrders(orders);
+    },
+
+    async processRefunds() {
+      await sleep(500);
+      requireAdmin();
+      const orders = loadOrders();
+      const pending = loadRefunds().filter((r) => r.status === "pending");
+      let sent = 0;
+      for (const r of pending) if (sendRefund(orders, r.id)) sent += 1;
+      saveOrders(orders);
+      return { sent, failed: 0 };
+    },
+
+    async reportSales(from, to, stallId = null) {
+      await sleep(120);
+      if (stallId) requireStaff(stallId);
+      else requireAdmin();
+      return computeSalesRows(loadOrders(), from, to, stallId, loadCatalog().park.timezone);
+    },
+
+    async reportItems(from, to, stallId = null) {
+      await sleep(80);
+      if (stallId) requireStaff(stallId);
+      else requireAdmin();
+      return computeItemRows(loadOrders(), from, to, stallId, loadCatalog().park.timezone);
+    },
+
+    async reportHours(from, to, stallId = null) {
+      await sleep(80);
+      if (stallId) requireStaff(stallId);
+      else requireAdmin();
+      return computeHourRows(loadOrders(), from, to, stallId, loadCatalog().park.timezone);
     },
 
     async saveStall(row) {
@@ -754,6 +875,7 @@ export function createDemoBackend(): Backend {
       localStorage.removeItem(K.support);
       localStorage.removeItem(K.coupons);
       localStorage.removeItem(K.stallLogins);
+      localStorage.removeItem(K.refunds);
       emit("catalog");
       emit("orders");
       emit("support");

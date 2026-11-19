@@ -8,32 +8,11 @@
 // POST creates the account (or resets its password when the email already exists), makes it
 // stall staff, links it to that stall only, and unlinks any previous login of that stall.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { adminClient } from "@/lib/server/admin-client";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const fail = (status: number, error: string) => Response.json({ error }, { status });
-
-async function adminClient(request: Request): Promise<SupabaseClient | Response> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anonKey || !serviceKey) return fail(503, "Stall logins need the Supabase keys on the server (see DEPLOY.md).");
-
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return fail(401, "sign_in_required");
-
-  // Check the caller is a park admin, reading their own profile as themselves.
-  const asCaller = createClient(url, anonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: user } = await asCaller.auth.getUser(token);
-  if (!user.user) return fail(401, "sign_in_required");
-  const { data: profile } = await asCaller.from("profiles").select("role").eq("id", user.user.id).maybeSingle();
-  if (profile?.role !== "admin") return fail(403, "forbidden");
-
-  return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-}
 
 async function findUserByEmail(db: SupabaseClient, email: string) {
   for (let page = 1; page < 50; page++) {

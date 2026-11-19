@@ -103,7 +103,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | B5 | Push notification when a stall order turns `ready` | B | todo | needs a Firebase project from the owner |
 | B6 | App icon, splash, Android release build; iOS build path | B | todo | **Android only** (owner, 2026-11-18). iOS belongs to A: `mobile/ios/` + `.github/workflows/ios.yml` |
 | A10 | Contract v1.6: dish options, favourites, truck hours + pause, prep time, ratings, refunds, device tokens, report functions | A | done | `supabase/migrations/0006_v16.sql`; `npm run db:test` 138 passed. Not yet run on the owner's Supabase project |
-| A11 | Admin: reports + CSV (A1), order search and detail (A3), refunds via Stripe (A2) | A | todo | `ROADMAP.md` A1–A3 |
+| A11 | Admin: reports + CSV (A1), order search and detail (A3), refunds via Stripe (A2) | A | done | Admin → Reports; Admin → Orders (search, detail drawer, refunds). Stripe path written, not yet run with real keys |
 | A12 | Web customer: order again (C1), dish options (C2), favourites (C4), ratings (C5), recent/popular search (C7), cart suggestions (C8), per-dish notes (C16), wait time (C11), order for later (C10) | A | todo | after A10 |
 | A13 | Admin later: payouts (A4), customers (A5), message replies (A6), schedules (A8), activity log (A9) | A | todo | A4, A6 wait on the owner |
 | A14 | iOS app: same features as Android, after B finishes each one | A | todo | follows B7–B9 |
@@ -686,3 +686,23 @@ Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyErr
 - `partner-screen.tsx`: Today tab, plus a Print button on every ticket card.
 - `tsc` and `eslint` clean. Checked in demo mode with three seeded orders (sums correct; no overflow at 390 px). I did not open the print dialog here; the ticket HTML is plain.
 - **For S3 beyond today**, I'll need a method like `listStallTicketsRange(stallId, from, to)` (or `report_stall_sales`) from you after v1.6.
+
+### 2026-11-19 · A · DONE (A11: admin reports, order search, refunds) + ANSWER (your S3 range request)
+
+- **Admin → Reports** (`admin-reports.tsx`):
+  - Date presets (today / yesterday / 7 / 30 days / this month / pick dates) and a truck filter.
+  - Totals: charged, tickets, average ticket, online vs at truck, coupon discounts, refunded.
+  - "Charged per day" chart with hover and a table view; a per-truck table; top 10 dishes; busiest-hours grid.
+  - Sales and dishes CSV downloads.
+- **Admin → Orders** (`admin-orders.tsx`, replaces the old list):
+  - Search by order number, name, phone or #token; filters for status, truck, payment and dates.
+  - Clicking an order opens a details panel: items with options and notes, each truck's part, bill, refunds, cancel, and a refund form (everything left / one truck's part / another amount + reason).
+  - A banner offers "Send refunds now" when refunds are waiting, e.g. after a truck rejects a paid order.
+- **Server:** new `POST /api/payments/refunds` (admin only) sends waiting refunds to Stripe, with an idempotency key so retries never refund twice, and records the result. The admin check moved to `web/src/lib/server/admin-client.ts` (stall-logins uses it too).
+- **Shared maths:** `web/src/lib/reports.ts` (park-date helpers, the demo version of the report functions, totals, CSV).
+- **For you (B10):** the data layer now has these, and stall staff may call them for their own truck:
+  - `backend().reportSales(from, to, stallId)`, `reportItems(...)` and `reportHours(...)`, with dates as "YYYY-MM-DD" in park time. Use them for S3 beyond today; no new method needed.
+  - `setStallOrderStatus(id, "preparing", prepMins)` takes the prep time for S2.
+  - `totalsOf()` and `salesCsv()` in `lib/reports.ts` if you want the same sums or a CSV.
+- Checked in demo mode in the browser: search, the details panel, a $2.50 partial refund, cancelling (the full refund was queued and then sent; the order shows Refunded), the reports, the chart hover and the CSV. `tsc` and `eslint` are clean; `next build` passes; the database tests are unchanged (138).
+

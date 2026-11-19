@@ -4,21 +4,23 @@ import { KeyRound, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { backend, isDemo } from "@/lib/backend";
-import { dayAndTime, friendlyError, imageSrc, isOrderLive, money, plural } from "@/lib/format";
-import { useAllOrders, useCatalog, useSupportRequests, type CatalogIndex } from "@/lib/hooks";
+import { dayAndTime, friendlyError, imageSrc, money, plural } from "@/lib/format";
+import { useCatalog, useSupportRequests, type CatalogIndex } from "@/lib/hooks";
 import { useSession } from "@/lib/hooks";
 import type { Banner, Diet, MenuCategory, MenuItem, Park, Stall, SupportStatus } from "@/lib/types";
 import { supportTopics } from "./support-shared";
-import { StatusPill } from "./order-screen";
 import { CouponsTab } from "./admin-coupons";
+import { OrdersTab } from "./admin-orders";
+import { ReportsTab } from "./admin-reports";
 import { blankToNull, Check, ConfirmDelete, Select, Text, toCents, toDollars, type Run } from "./admin-kit";
 import { ImageUpload } from "./image-upload";
 import { StaffHeader, StaffSignIn } from "./staff-shell";
 import { Button, Chip, cn, Container, DietMark, inputClass, Notice, Spinner, Switch } from "./ui";
 
-type Tab = "orders" | "messages" | "menu" | "stalls" | "coupons" | "promos" | "settings";
+type Tab = "orders" | "reports" | "messages" | "menu" | "stalls" | "coupons" | "promos" | "settings";
 const tabs: [Tab, string][] = [
   ["orders", "Orders"],
+  ["reports", "Reports"],
   ["messages", "Messages"],
   ["menu", "Menus"],
   ["stalls", "Stalls"],
@@ -28,78 +30,6 @@ const tabs: [Tab, string][] = [
 ];
 
 
-
-// ------------------------------------------------------------------ orders
-function OrdersTab() {
-  const { orders, error } = useAllOrders();
-  if (error && !orders) return <Notice tone="error">Could not load orders.</Notice>;
-  if (!orders) return <Spinner />;
-
-  const today = new Date().toDateString();
-  const todays = orders.filter((o) => new Date(o.created_at).toDateString() === today && o.status !== "cancelled" && o.status !== "awaiting_payment");
-  const live = orders.filter(isOrderLive);
-
-  return (
-    <>
-      <p className="text-ink-700">
-        Today: <strong className="text-ink-900 tabular-nums">{plural(todays.length, "order")}</strong> worth{" "}
-        <strong className="text-ink-900 tabular-nums">{money(todays.reduce((n, o) => n + o.total_cents, 0))}</strong>,{" "}
-        <strong className="text-ink-900 tabular-nums">{live.length}</strong> in progress.
-      </p>
-      {orders.length === 0 ? (
-        <p className="mt-8 text-ink-500">No orders yet. They show up here as customers place them.</p>
-      ) : (
-        <div className="mt-5 overflow-x-auto rounded-lg border border-line">
-          <table className="w-full min-w-[720px] text-left text-label">
-            <thead className="bg-surface-1 text-ink-700">
-              <tr>
-                {["Order", "Placed", "Customer", "Stalls", "Payment", "Total"].map((h) => (
-                  <th key={h} scope="col" className={cn("px-4 py-2.5 font-bold", h === "Total" && "text-right")}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line font-medium">
-              {orders.map((o) => (
-                <tr key={o.id} className="align-top">
-                  <td className="px-4 py-3 font-bold tabular-nums">{o.order_no}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-ink-700 tabular-nums">{dayAndTime(o.created_at)}</td>
-                  <td className="px-4 py-3">
-                    {o.customer_name}
-                    <span className="block text-small text-ink-500">{o.fulfilment === "table" ? `Table ${o.table_no}` : "Pickup"}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <ul className="space-y-1.5">
-                      {o.stall_orders.map((s) => (
-                        <li key={s.id} className="flex items-center gap-2">
-                          <span className="tabular-nums">#{s.token_no}</span>
-                          <span className="truncate">{s.stall?.name}</span>
-                          <StatusPill status={s.status} />
-                        </li>
-                      ))}
-                    </ul>
-                  </td>
-                  <td className="px-4 py-3 text-ink-700">
-                    {o.payment_status === "paid" ? "Paid online" : o.payment_method === "online" ? "Awaiting payment" : "At the stall"}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums">
-                    {money(o.total_cents)}
-                    {o.coupon_code && (
-                      <span className="block text-small font-medium text-leaf-700">
-                        {o.coupon_code} −{money(o.discount_cents)}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
 
 // ------------------------------------------------------------------ menus
 function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | null; category: MenuCategory; index: CatalogIndex; run: Run; onClose: () => void }) {
@@ -874,7 +804,8 @@ export function AdminScreen() {
             </Notice>
           )}
           <div className="py-6">
-            {tab === "orders" && <OrdersTab />}
+            {tab === "orders" && <OrdersTab index={index} run={run} />}
+            {tab === "reports" && <ReportsTab index={index} />}
             {tab === "messages" && <MessagesTab run={run} />}
             {tab === "menu" && <MenuTab index={index} run={run} />}
             {tab === "stalls" && <StallsTab index={index} run={run} />}
