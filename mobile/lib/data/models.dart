@@ -1,4 +1,7 @@
-// Models for the shared contract (COLLAB.md, contract v1.3). Field names follow the database
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
+// Models for the shared contract (COLLAB.md, contract v1.3–v1.6). Field names follow the database
 // and shared/seed/catalog.json. Unknown or missing fields stay null: nothing is invented.
 
 enum Diet { veg, egg, nonveg }
@@ -37,7 +40,10 @@ class Park {
         announcement = _str(j['announcement']),
         contactEmail = _str(j['contact_email']),
         contactPhone = _str(j['contact_phone']),
-        hoursText = _str(j['hours_text']);
+        hoursText = _str(j['hours_text']),
+        timezone = _str(j['timezone']) ?? 'America/Los_Angeles',
+        scheduledOrdersEnabled = _bool(j['scheduled_orders_enabled']),
+        ratingsPublic = _bool(j['ratings_public']);
 
   final String name;
   final String? tagline, address, instagram, announcement, contactEmail, contactPhone, hoursText;
@@ -47,7 +53,78 @@ class Park {
 
   /// Contract v1.5: when false the cart hides the coupon box.
   final bool couponsEnabled;
+
+  /// Contract v1.6. Truck hours are in [timezone]. Ordering for later and public ratings are the
+  /// owner's switches and start off.
+  final String timezone;
+  final bool scheduledOrdersEnabled, ratingsPublic;
 }
+
+// ---------------------------------------------------------------- truck hours and pause (v1.6)
+
+/// The park's clock. Set once from the catalog; truck hours are read in it, not the phone's zone.
+tz.Location? _parkZone;
+bool _tzReady = false;
+
+void setParkTimezone(String name) {
+  if (!_tzReady) {
+    tzdata.initializeTimeZones();
+    _tzReady = true;
+  }
+  try {
+    _parkZone = tz.getLocation(name);
+  } catch (_) {
+    _parkZone = null; // unknown zone: fall back to the phone's clock
+  }
+}
+
+DateTime _onParkClock(DateTime at) {
+  final z = _parkZone;
+  return z == null ? at.toLocal() : tz.TZDateTime.from(at, z);
+}
+
+/// [at] on the park's clock: weekday (0 = Sunday) and minutes since midnight.
+({int dow, int minutes}) parkClock(DateTime at) {
+  final l = _onParkClock(at);
+  return (dow: l.weekday % 7, minutes: l.hour * 60 + l.minute);
+}
+
+/// "7:40 PM" on the park's clock.
+String parkTime(DateTime at) {
+  final l = _onParkClock(at);
+  final h = l.hour % 12 == 0 ? 12 : l.hour % 12;
+  return '$h:${l.minute.toString().padLeft(2, '0')} ${l.hour < 12 ? 'AM' : 'PM'}';
+}
+
+/// Same calendar day on the park's clock.
+bool sameParkDay(DateTime a, DateTime b) {
+  final x = _onParkClock(a), y = _onParkClock(b);
+  return x.year == y.year && x.month == y.month && x.day == y.day;
+}
+
+class StallHours {
+  StallHours.fromJson(Map<String, dynamic> j)
+      : stallId = j['stall_id'] as String,
+        weekday = _int(j['weekday']),
+        opens = _mins(j['opens']),
+        closes = _mins(j['closes']);
+
+  final String stallId;
+  final int weekday, opens, closes;
+
+  static int _mins(Object? v) {
+    final p = (v as String? ?? '0:0').split(':');
+    return (int.tryParse(p[0]) ?? 0) * 60 + (p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0);
+  }
+
+  /// Same rule as withinHours() on the website: closes before opens runs past midnight.
+  bool covers(int dow, int minutes) {
+    if (opens < closes) return weekday == dow && minutes >= opens && minutes < closes;
+    return (weekday == dow && minutes >= opens) || (weekday == (dow + 6) % 7 && minutes < closes);
+  }
+}
+
+enum ClosedReason { closed, paused, outsideHours }
 
 class Stall {
   Stall.fromJson(Map<String, dynamic> j)
@@ -62,16 +139,109 @@ class Stall {
         logoUrl = _str(j['logo_url']),
         coverUrl = _str(j['cover_url']),
         avgPrepMins = j['avg_prep_mins'] is num ? (j['avg_prep_mins'] as num).toInt() : null,
-        isOpen = _bool(j['is_open'], true),
+        switchedOn = _bool(j['is_open'], true),
         isActive = _bool(j['is_active'], true),
+        autoHours = _bool(j['auto_hours']),
+        pausedUntil = DateTime.tryParse(j['paused_until'] as String? ?? ''),
         sortOrder = _int(j['sort_order']);
 
   final String id, slug, name;
   final String? tagline, locationLabel, phone, instagram, logoUrl, coverUrl;
   final List<String> cuisines;
   final int? avgPrepMins;
-  final bool isOpen, isActive;
+  final bool isActive;
   final int sortOrder;
+
+  /// The truck's own Open switch (`is_open`). Use [isOpen] for "can I order now".
+  final bool switchedOn;
+
+  /// Contract v1.6: follow [hours] automatically; paused for a few minutes when busy.
+  final bool autoHours;
+  final DateTime? pausedUntil;
+  List<StallHours> hours = const [];
+
+  /// Same order as _stall_closed_reason() in 0006_v16.sql.
+  ClosedReason? closedReason([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    if (!isActive || !switchedOn) return ClosedReason.closed;
+    if (pausedUntil != null && pausedUntil!.isAfter(now)) return ClosedReason.paused;
+    if (autoHours) {
+      final c = parkClock(now);
+      if (!hours.any((h) => h.covers(c.dow, c.minutes))) return ClosedReason.outsideHours;
+    }
+    return null;
+  }
+
+  /// Taking orders right now.
+  bool get isOpen => closedReason() == null;
+
+  /// Taking orders at [at] (for orders placed for later).
+  bool openAt(DateTime at) => closedReason(at) == null;
+
+  /// Next time within a week (15-minute steps) the hours open, or null.
+  DateTime? nextOpening([DateTime? from]) {
+    if (hours.isEmpty) return null;
+    final start = from ?? DateTime.now();
+    var t = DateTime.fromMillisecondsSinceEpoch((start.millisecondsSinceEpoch / 900000).ceil() * 900000);
+    final end = start.add(const Duration(days: 7));
+    while (t.isBefore(end)) {
+      final c = parkClock(t);
+      if (hours.any((h) => h.covers(c.dow, c.minutes))) return t;
+      t = t.add(const Duration(minutes: 15));
+    }
+    return null;
+  }
+
+  /// "Open now", "Busy · back at 7:40 PM", "Opens 5:00 PM" or "Closed now".
+  String get statusLabel => switch (closedReason()) {
+        null => 'Open now',
+        ClosedReason.paused => 'Busy · back at ${parkTime(pausedUntil!)}',
+        ClosedReason.outsideHours => switch (nextOpening()) { final t? => 'Opens ${parkTime(t)}', null => 'Closed now' },
+        ClosedReason.closed => 'Closed now',
+      };
+}
+
+// ---------------------------------------------------------------- dish options (v1.6)
+
+class MenuOptionGroup {
+  MenuOptionGroup.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        menuItemId = j['menu_item_id'] as String,
+        name = j['name'] as String,
+        minSelect = _int(j['min_select']),
+        maxSelect = _int(j['max_select'], 1),
+        sortOrder = _int(j['sort_order']);
+
+  final String id, menuItemId, name;
+  final int minSelect, maxSelect, sortOrder;
+}
+
+class MenuOption {
+  MenuOption.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        groupId = j['group_id'] as String,
+        name = j['name'] as String,
+        priceCents = _int(j['price_cents']),
+        isDefault = _bool(j['is_default']),
+        isAvailable = _bool(j['is_available'], true),
+        sortOrder = _int(j['sort_order']);
+
+  final String id, groupId, name;
+  final int priceCents, sortOrder;
+  final bool isDefault, isAvailable;
+}
+
+/// The copy of a chosen option an order line keeps (`order_items.options`).
+class ChosenOption {
+  const ChosenOption({required this.group, required this.name, required this.priceCents});
+  ChosenOption.fromJson(Map<String, dynamic> j)
+      : group = j['group'] as String? ?? '',
+        name = j['name'] as String? ?? '',
+        priceCents = _int(j['price_cents']);
+
+  final String group, name;
+  final int priceCents;
+  Map<String, dynamic> toJson() => {'group': group, 'name': name, 'price_cents': priceCents};
 }
 
 class MenuCategory {
@@ -199,21 +369,35 @@ enum OrderStatus { awaitingPayment, active, completed, cancelled }
 enum TicketStatus { pending, placed, preparing, ready, completed, cancelled }
 
 class OrderItem {
-  OrderItem({required this.menuItemId, required this.name, required this.diet, required this.unitPriceCents, required this.qty});
+  OrderItem({required this.menuItemId, required this.name, required this.diet, required this.unitPriceCents, required this.qty, this.options = const [], this.note});
 
   OrderItem.fromJson(Map<String, dynamic> j)
       : menuItemId = j['menu_item_id'] as String?,
         name = j['name'] as String,
         diet = dietFrom(j['diet']),
         unitPriceCents = _int(j['unit_price_cents']),
-        qty = _int(j['qty'], 1);
+        qty = _int(j['qty'], 1),
+        options = (j['options'] as List? ?? const []).map((e) => ChosenOption.fromJson(e as Map<String, dynamic>)).toList(),
+        note = _str(j['note']);
 
   final String? menuItemId;
   final String name;
   final Diet? diet;
-  final int unitPriceCents, qty;
 
-  Map<String, dynamic> toJson() => {'menu_item_id': menuItemId, 'name': name, 'diet': diet?.name, 'unit_price_cents': unitPriceCents, 'qty': qty};
+  /// Unit price includes the options (v1.6).
+  final int unitPriceCents, qty;
+  final List<ChosenOption> options;
+  final String? note;
+
+  Map<String, dynamic> toJson() => {
+        'menu_item_id': menuItemId,
+        'name': name,
+        'diet': diet?.name,
+        'unit_price_cents': unitPriceCents,
+        'qty': qty,
+        'options': options.map((e) => e.toJson()).toList(),
+        'note': note,
+      };
 }
 
 class StallOrder {
@@ -227,7 +411,11 @@ class StallOrder {
     required this.items,
     required this.createdAt,
     this.readyAt,
-  });
+    String? id,
+    this.prepMins,
+    this.readyBy,
+    this.refundedCents = 0,
+  }) : id = id ?? '$stallId@${createdAt.millisecondsSinceEpoch}';
 
   StallOrder.fromJson(Map<String, dynamic> j)
       : stallId = j['stall_id'] as String,
@@ -238,7 +426,11 @@ class StallOrder {
         discountCents = _int(j['discount_cents']),
         items = (j['order_items'] as List).map((e) => OrderItem.fromJson(e as Map<String, dynamic>)).toList(),
         createdAt = DateTime.parse(j['created_at'] as String),
-        readyAt = j['ready_at'] == null ? null : DateTime.parse(j['ready_at'] as String);
+        readyAt = j['ready_at'] == null ? null : DateTime.parse(j['ready_at'] as String),
+        id = _str(j['id']) ?? '${j['stall_id']}@${DateTime.parse(j['created_at'] as String).millisecondsSinceEpoch}',
+        prepMins = j['prep_mins'] is num ? (j['prep_mins'] as num).toInt() : null,
+        readyBy = DateTime.tryParse(j['ready_by'] as String? ?? ''),
+        refundedCents = _int(j['refunded_cents']);
 
   final String stallId, stallName;
   final int tokenNo, subtotalCents;
@@ -250,7 +442,19 @@ class StallOrder {
   final DateTime createdAt;
   DateTime? readyAt;
 
+  /// `stall_orders.id` (ratings point at it).
+  final String id;
+
+  /// Set by the truck when it accepts (v1.6): "Ready by 7:42".
+  int? prepMins;
+  DateTime? readyBy;
+  int refundedCents;
+
   Map<String, dynamic> toJson() => {
+        'id': id,
+        'prep_mins': prepMins,
+        'ready_by': readyBy?.toIso8601String(),
+        'refunded_cents': refundedCents,
         'stall_id': stallId,
         'stall_name': stallName,
         'token_no': tokenNo,
@@ -281,6 +485,8 @@ class Order {
     required this.status,
     required this.createdAt,
     required this.stallOrders,
+    this.pickupAt,
+    this.refundedCents = 0,
   });
 
   Order.fromJson(Map<String, dynamic> j)
@@ -299,7 +505,9 @@ class Order {
         paymentMethod = _enum(PaymentMethod.values, j['payment_method'], PaymentMethod.payAtStall),
         status = _enum(OrderStatus.values, j['status'], OrderStatus.active),
         createdAt = DateTime.parse(j['created_at'] as String),
-        stallOrders = (j['stall_orders'] as List).map((e) => StallOrder.fromJson(e as Map<String, dynamic>)).toList();
+        stallOrders = (j['stall_orders'] as List).map((e) => StallOrder.fromJson(e as Map<String, dynamic>)).toList(),
+        pickupAt = DateTime.tryParse(j['pickup_at'] as String? ?? ''),
+        refundedCents = _int(j['refunded_cents']);
 
   final String id, orderNo, customerName;
   final Fulfilment fulfilment;
@@ -314,7 +522,15 @@ class Order {
   final DateTime createdAt;
   final List<StallOrder> stallOrders;
 
+  /// Ordered for later (v1.6); null means as soon as possible.
+  final DateTime? pickupAt;
+
+  /// Money sent back so far (v1.6 refunds).
+  int refundedCents;
+
   Map<String, dynamic> toJson() => {
+        'pickup_at': pickupAt?.toIso8601String(),
+        'refunded_cents': refundedCents,
         'id': id,
         'order_no': orderNo,
         'customer_name': customerName,
@@ -332,4 +548,26 @@ class Order {
         'created_at': createdAt.toIso8601String(),
         'stall_orders': stallOrders.map((e) => e.toJson()).toList(),
       };
+}
+
+// ---------------------------------------------------------------- ratings (v1.6)
+
+/// One rating of one truck's part of an order (`order_ratings`), 1–5 stars.
+class OrderRating {
+  OrderRating({required this.stallOrderId, required this.orderId, required this.stallId, required this.stars, this.comment, required this.updatedAt});
+  OrderRating.fromJson(Map<String, dynamic> j)
+      : stallOrderId = j['stall_order_id'] as String,
+        orderId = j['order_id'] as String,
+        stallId = j['stall_id'] as String,
+        stars = _int(j['stars'], 5),
+        comment = _str(j['comment']),
+        updatedAt = DateTime.tryParse(j['updated_at'] as String? ?? '') ?? DateTime.now();
+
+  final String stallOrderId, orderId, stallId;
+  final int stars;
+  final String? comment;
+  final DateTime updatedAt;
+
+  Map<String, dynamic> toJson() =>
+      {'stall_order_id': stallOrderId, 'order_id': orderId, 'stall_id': stallId, 'stars': stars, 'comment': comment, 'updated_at': updatedAt.toIso8601String()};
 }

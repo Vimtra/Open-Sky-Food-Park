@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon for "food is ready": a service bell. Android draws it in one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.5,4.5h3a1,1 0,0 1,0 2h-0.5v0.56c3.95,0.47 7,3.71 7,7.69V16H4v-1.25c0,-3.98 3.05,-7.22 7,-7.69V6.5h-0.5a1,1 0,0 1,0 -2zM2.5,17.5h19a1,1 0,0 1,0 2h-19a1,1 0,0 1,0 -2z"/>
+</vector>

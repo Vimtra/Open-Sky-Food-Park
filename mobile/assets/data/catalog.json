@@ -16,7 +16,9 @@
     "contact_email": null,
     "contact_phone": null,
     "hours_text": null,
-    "coupons_enabled": true
+    "coupons_enabled": true,
+    "scheduled_orders_enabled": false,
+    "ratings_public": false
   },
   "cravings": [
     {
@@ -147,7 +149,9 @@
       "avg_prep_mins": null,
       "is_open": true,
       "is_active": true,
-      "sort_order": 1
+      "sort_order": 1,
+      "auto_hours": false,
+      "paused_until": null
     },
     {
       "id": "desi-desserts",
@@ -168,9 +172,12 @@
       "avg_prep_mins": null,
       "is_open": true,
       "is_active": true,
-      "sort_order": 2
+      "sort_order": 2,
+      "auto_hours": false,
+      "paused_until": null
     }
   ],
+  "stall_hours": [],
   "menu_categories": [
     {
       "id": "pandemkodi-dhaba.curry-pulka-combos",
@@ -1111,6 +1118,8 @@
       "sort_order": 5
     }
   ],
+  "menu_option_groups": [],
+  "menu_options": [],
   "placeholder_price_item_ids": [
     "pandemkodi-dhaba.fish-curry-with-fresh-live-pulka",
     "pandemkodi-dhaba.mutton-curry-with-fresh-live-pulka",

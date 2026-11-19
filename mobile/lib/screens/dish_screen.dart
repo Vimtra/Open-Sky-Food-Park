@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../data/catalog.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
+import '../ui/favourite_button.dart';
 import '../theme/tokens.dart';
 import '../ui/routes.dart';
 import '../ui/widgets.dart';
@@ -53,6 +54,9 @@ class DishScreen extends StatelessWidget {
                 icon: const Icon(Icons.arrow_back),
               ),
             ),
+            actions: [
+              Padding(padding: const EdgeInsets.all(6), child: FavouriteButton.item(item.id, name: item.name)),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: FoodImage(item.imageUrl, greyed: !item.isAvailable),
             ),
@@ -85,6 +89,9 @@ class DishScreen extends StatelessWidget {
                 ]),
                 const SizedBox(height: 8),
                 Text(money(item.priceCents), style: OsText.title.copyWith(fontFeatures: OsText.tabular)),
+                if (c.optionsOf(item.id).isNotEmpty)
+                  Text('Customisable: ${c.optionsOf(item.id).map((g) => g.group.name.toLowerCase()).join(', ')}',
+                      style: OsText.weight(OsText.small, 600).copyWith(color: OsColors.ember700)),
                 if (blurb != null) ...[
                   const SizedBox(height: 6),
                   Text(blurb, style: OsText.weight(OsText.body, 400).copyWith(color: OsColors.ink700)),
@@ -104,7 +111,15 @@ class DishScreen extends StatelessWidget {
                 AddButton(item: item, stall: stall, large: true),
                 if (!item.isAvailable || !stall.isOpen) ...[
                   const SizedBox(height: 8),
-                  Text(item.isAvailable ? '${stall.name} is closed right now.' : 'This dish is sold out right now.', style: OsText.small),
+                  Text(
+                      !item.isAvailable
+                          ? 'This dish is sold out right now.'
+                          : switch (stall.closedReason()) {
+                              ClosedReason.paused => '${stall.name} is busy and has paused new orders. ${stall.statusLabel.replaceFirst('Busy · ', '').replaceFirst('back', 'Back')}.',
+                              ClosedReason.outsideHours => '${stall.name} is closed right now. ${stall.statusLabel}.',
+                              _ => '${stall.name} is closed right now.',
+                            },
+                      style: OsText.small),
                 ],
                 const SizedBox(height: 20),
                 const Divider(),

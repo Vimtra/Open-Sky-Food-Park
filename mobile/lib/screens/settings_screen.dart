@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/models.dart';
 import '../state/app_state.dart';
+import '../state/ready_alerts.dart';
 import '../theme/tokens.dart';
 import 'account_screen.dart';
 
@@ -80,6 +81,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onSelectionChanged: (s) => app.setCheckout(payment: s.first),
             showSelectedIcon: false,
           ),
+          const SizedBox(height: 28),
+          _heading('Notifications'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: app.readyAlerts,
+            onChanged: (v) async {
+              app.setReadyAlerts(v);
+              if (v) await ReadyAlerts.askPermission();
+            },
+            title: Text('Tell me when my food is ready', style: OsText.weight(OsText.label, 700).copyWith(fontSize: 15)),
+            subtitle: Text('A notification with its own bell sound, so you can tell it apart from your other apps.', style: OsText.small),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: app.readyAlerts
+                  ? () async {
+                      final ok = await ReadyAlerts.askPermission() || await ReadyAlerts.allowed;
+                      if (ok) {
+                        await ReadyAlerts.showSample();
+                      } else if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Notifications are off for Open Sky. Turn them on in your phone\'s settings to hear the alert.')));
+                      }
+                    }
+                  : null,
+              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+              label: const Text('Hear the alert'),
+            ),
+          ),
+          Text('To change or silence the sound, open your phone\'s settings for Open Sky and choose "Food is ready".', style: OsText.small),
           const SizedBox(height: 28),
           _heading('Help'),
           _row(Icons.slideshow_outlined, 'Replay the welcome tour', () => afterSignIn(context, isNew: true)),

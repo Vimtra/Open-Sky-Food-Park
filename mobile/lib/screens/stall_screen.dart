@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../data/catalog.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
+import '../ui/favourite_button.dart';
 import '../theme/tokens.dart';
 import '../ui/routes.dart';
 import '../ui/widgets.dart';
@@ -98,7 +99,13 @@ class _StallScreenState extends State<StallScreen> {
                     margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: OsColors.ember50, borderRadius: BorderRadius.circular(OsRadius.md)),
-                    child: Text('${stall.name} is closed right now, so its dishes cannot be added. You can still look through the menu.', style: OsText.weight(OsText.label, 500)),
+                    child: Text(
+                        switch (stall.closedReason()) {
+                          ClosedReason.paused => '${stall.name} is busy and has paused new orders for a few minutes (${stall.statusLabel.replaceFirst('Busy · ', '')}). You can still look through the menu.',
+                          ClosedReason.outsideHours => '${stall.name} is outside its opening hours (${stall.statusLabel.toLowerCase()}). You can still look through the menu.',
+                          _ => '${stall.name} is closed right now, so its dishes cannot be added. You can still look through the menu.',
+                        },
+                        style: OsText.weight(OsText.label, 500)),
                   ),
                 ),
               SliverPersistentHeader(
@@ -253,6 +260,7 @@ class _StallHero extends StatelessWidget {
             icon: const Icon(Icons.arrow_back),
           ),
         ),
+        Positioned(top: top + 4, right: 8, child: FavouriteButton.stall(stall.id, name: stall.name, onDark: true)),
         Positioned(
           left: 16,
           right: 16,

@@ -4,12 +4,17 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import 'coupons.dart';
 import 'models.dart';
+import 'options.dart';
 
 /// The menu, loaded once and indexed for the screens. In demo mode it comes from the bundled
 /// assets/data/catalog.json (a copy of shared/seed/catalog.json); a Supabase source comes later (B2).
 class Catalog {
-  Catalog._(this.park, this.stalls, this.categories, this.items, this.cravings, this.banners, this.placeholderPriceIds, this.coupons) {
+  Catalog._(this.park, this.stalls, this.categories, this.items, this.cravings, this.banners, this.placeholderPriceIds, this.coupons,
+      List<StallHours> hours, List<MenuOptionGroup> optionGroups, List<MenuOption> options) {
+    setParkTimezone(park.timezone);
+    optionsByItem.addAll(indexOptions(optionGroups, options));
     for (final s in stalls) {
+      s.hours = hours.where((h) => h.stallId == s.id).toList();
       stallById[s.id] = s;
       stallBySlug[s.slug] = s;
     }
@@ -42,6 +47,10 @@ class Catalog {
   final itemById = <String, MenuItem>{};
   final itemsByStall = <String, List<MenuItem>>{};
 
+  /// Contract v1.6: option groups per dish (size, spice, add-ons). Empty until the owner adds some.
+  final optionsByItem = <String, List<OptionGroupView>>{};
+  List<OptionGroupView> optionsOf(String itemId) => optionsByItem[itemId] ?? const [];
+
   static Future<Catalog> loadBundled() async =>
       Catalog.fromJson(jsonDecode(await rootBundle.loadString('assets/data/catalog.json')) as Map<String, dynamic>);
 
@@ -60,6 +69,9 @@ class Catalog {
       list('banners', PromoBanner.fromJson).where((b) => b.isActive).toList()..sort(bySort),
       (j['placeholder_price_item_ids'] as List? ?? const []).cast<String>().toSet(),
       list('coupons', Coupon.fromJson),
+      list('stall_hours', StallHours.fromJson),
+      list('menu_option_groups', MenuOptionGroup.fromJson),
+      list('menu_options', MenuOption.fromJson),
     );
   }
 

@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'screens/account_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/order_screen.dart';
 import 'screens/orders_screen.dart';
 import 'state/app_state.dart';
+import 'state/ready_alerts.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
 import 'ui/widgets.dart';
@@ -14,8 +16,20 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   final state = await AppState.load();
+  // "Food is ready" alerts: own channel and bell sound. Tapping one opens that order.
+  state.onTokenReady = ReadyAlerts.showReady;
+  ReadyAlerts.onOpenOrder = openOrderFromAlert;
+  final launchedFor = await ReadyAlerts.init();
   runApp(AppScope(state: state, child: const OpenSkyApp()));
+  if (launchedFor != null) WidgetsBinding.instance.addPostFrameCallback((_) => openOrderFromAlert(launchedFor));
 }
+
+final navigatorKey = GlobalKey<NavigatorState>();
+
+/// A tapped alert opens its order over the tabs (not on top of whatever page was open).
+void openOrderFromAlert(String orderId) => navigatorKey.currentState
+  ?..popUntil((r) => r.isFirst)
+  ..push(MaterialPageRoute<void>(builder: (_) => OrderScreen(orderId: orderId)));
 
 class OpenSkyApp extends StatelessWidget {
   const OpenSkyApp({super.key});
@@ -39,6 +53,7 @@ class OpenSkyApp extends StatelessWidget {
             ),
           );
         },
+        navigatorKey: navigatorKey,
         home: const Shell(),
       );
 }

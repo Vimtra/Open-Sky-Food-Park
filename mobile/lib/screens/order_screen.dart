@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/catalog.dart';
 import '../data/models.dart';
+import '../data/options.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
 import '../ui/routes.dart';
@@ -36,7 +37,10 @@ String _guidance(StallOrder s, Order o) {
   return switch (s.status) {
     TicketStatus.pending => 'We will send this to the truck once payment goes through.',
     TicketStatus.placed => '${s.stallName} has your order and will start shortly.',
-    TicketStatus.preparing => table ? 'Being prepared. It will be brought to table ${o.tableNo}.' : 'Being prepared. We will tell you when it is ready.',
+    TicketStatus.preparing => [
+        table ? 'Being prepared. It will be brought to table ${o.tableNo}.' : 'Being prepared. We will tell you when it is ready.',
+        if (s.readyBy != null) 'Ready by ${parkTime(s.readyBy!)}.',
+      ].join(' '),
     TicketStatus.ready => table ? 'On its way to table ${o.tableNo}.' : 'Collect it at ${s.stallName}. Show token ${s.tokenNo}.',
     TicketStatus.completed => table ? 'Served. Enjoy!' : 'Collected. Enjoy!',
     TicketStatus.cancelled => 'Cancelled.',
@@ -79,6 +83,14 @@ class OrderScreen extends StatelessWidget {
             '${o.orderNo}  ·  $time  ·  ${o.fulfilment == Fulfilment.table ? 'Table ${o.tableNo}' : 'Pickup'}  ·  ${o.paymentMethod == PaymentMethod.online ? (AppState.demo ? 'Paid (demo)' : 'Paid') : 'Pay at the truck'}',
             style: OsText.weight(OsText.label, 500).copyWith(color: OsColors.ink700, fontFeatures: OsText.tabular),
           ),
+          if (o.pickupAt != null) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              const Icon(Icons.schedule, size: 18, color: OsColors.ember700),
+              const SizedBox(width: 6),
+              Text('Pick-up at ${parkTime(o.pickupAt!)}', style: OsText.weight(OsText.label, 700).copyWith(color: OsColors.ember700)),
+            ]),
+          ],
           if (AppState.demo && o.status == OrderStatus.active) ...[
             const SizedBox(height: 12),
             Container(
@@ -112,6 +124,7 @@ class OrderScreen extends StatelessWidget {
               if (o.serviceFeeCents > 0) _row('Service fee', o.serviceFeeCents),
               const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Divider()),
               _row('Total', o.totalCents, strong: true),
+              if (o.refundedCents > 0) _row('Refunded to your card', -o.refundedCents),
             ]),
           ),
           const SizedBox(height: 16),
@@ -277,13 +290,142 @@ class _TokenCard extends StatelessWidget {
         for (final it in s.items)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(children: [
-              DietMark(it.diet, size: 12),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(padding: const EdgeInsets.only(top: 4), child: DietMark(it.diet, size: 12)),
               const SizedBox(width: 8),
-              Expanded(child: Text('${it.qty} × ${it.name}', style: OsText.weight(OsText.label, 500))),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${it.qty} × ${it.name}', style: OsText.weight(OsText.label, 500)),
+                  if (it.options.isNotEmpty) Text(optionsText(it.options, money), style: OsText.small.copyWith(color: OsColors.ink700)),
+                  if (it.note != null) Text('“${it.note}”', style: OsText.small.copyWith(color: OsColors.ink700, fontStyle: FontStyle.italic)),
+                ]),
+              ),
               Text(money(it.unitPriceCents * it.qty), style: OsText.weight(OsText.label, 600).copyWith(fontFeatures: OsText.tabular)),
             ]),
           ),
+        if (s.refundedCents > 0) ...[
+          const SizedBox(height: 6),
+          Text('Refund of ${money(s.refundedCents)} on its way to your card.', style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.leaf700)),
+        ],
+        if (s.status == TicketStatus.completed) ...[
+          const SizedBox(height: 10),
+          const Divider(),
+          _RateTruck(o: o, s: s),
+        ],
+      ]),
+    );
+  }
+}
+
+/// Rate a truck's part once it has been handed over (v1.6, C5). Ratings stay private to the truck
+/// and the park until the owner makes them public.
+class _RateTruck extends StatelessWidget {
+  const _RateTruck({required this.o, required this.s});
+  final Order o;
+  final StallOrder s;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final r = app.ratingOf(s);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(children: [
+        Expanded(
+          child: Text(r == null ? 'How was ${s.stallName}?' : 'You rated ${s.stallName}',
+              style: OsText.weight(OsText.label, 700)),
+        ),
+        for (var i = 1; i <= 5; i++)
+          Semantics(
+            button: true,
+            label: '$i star${i == 1 ? '' : 's'}',
+            selected: r != null && r.stars >= i,
+            child: InkResponse(
+              radius: 22,
+              onTap: () => _open(context, i),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(r != null && r.stars >= i ? Icons.star_rounded : Icons.star_outline_rounded,
+                    size: 28, color: r != null && r.stars >= i ? OsColors.ember500 : OsColors.ink300),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  Future<void> _open(BuildContext context, int stars) async {
+    final app = AppScope.read(context);
+    final r = await showModalBottomSheet<({int stars, String comment})>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(OsRadius.xl))),
+      backgroundColor: OsColors.surface0,
+      builder: (_) => _RateSheet(s: s, stars: stars, comment: app.ratingOf(s)?.comment ?? ''),
+    );
+    if (r == null) return;
+    final err = app.rate(o, s, r.stars, r.comment);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err == null ? 'Thanks! ${s.stallName} will see your rating.' : friendlyError(err))));
+    }
+  }
+}
+
+class _RateSheet extends StatefulWidget {
+  const _RateSheet({required this.s, required this.stars, required this.comment});
+  final StallOrder s;
+  final int stars;
+  final String comment;
+
+  @override
+  State<_RateSheet> createState() => _RateSheetState();
+}
+
+class _RateSheetState extends State<_RateSheet> {
+  late int _stars = widget.stars;
+  late final _comment = TextEditingController(text: widget.comment);
+
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Rate ${s.stallName}', style: OsText.heading),
+        const SizedBox(height: 4),
+        Text('Token ${s.tokenNo} · only ${s.stallName} and the park see this.', style: OsText.small),
+        const SizedBox(height: 14),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (var i = 1; i <= 5; i++)
+            IconButton(
+              tooltip: '$i star${i == 1 ? '' : 's'}',
+              onPressed: () => setState(() => _stars = i),
+              iconSize: 40,
+              icon: Icon(_stars >= i ? Icons.star_rounded : Icons.star_outline_rounded, color: _stars >= i ? OsColors.ember500 : OsColors.ink300),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _comment,
+          maxLength: 500,
+          maxLines: 3,
+          minLines: 2,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Anything to tell the truck? (optional)'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, (stars: _stars, comment: _comment.text)),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          child: const Text('Send rating'),
+        ),
       ]),
     );
   }

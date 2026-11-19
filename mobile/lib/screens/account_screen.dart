@@ -4,6 +4,7 @@ import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
 import 'contact_screen.dart';
+import 'favourites_screen.dart';
 import 'help_screen.dart';
 import 'onboarding_screen.dart';
 import 'settings_screen.dart';
@@ -245,6 +246,15 @@ class _Profile extends StatelessWidget {
             title: 'Your orders',
             subtitle: orders.isEmpty ? 'No orders yet' : (live > 0 ? '$live in progress' : '${orders.length} past ${orders.length == 1 ? 'order' : 'orders'}'),
             onTap: onOpenOrders,
+          ),
+          _Tile(
+            icon: Icons.favorite_border,
+            title: 'Favourites',
+            subtitle: switch (app.favouriteItems.length + app.favouriteStalls.length) {
+              0 => 'Tap the heart on a dish or truck',
+              final n => '$n saved',
+            },
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const FavouritesScreen())),
           ),
           _Tile(
             icon: Icons.settings_outlined,

@@ -73,7 +73,9 @@ CouponQuote quoteCoupon({
   required String code,
   required bool couponsEnabled,
   required List<Coupon> coupons,
-  required Map<MenuItem, int> lines,
+  Map<MenuItem, int> lines = const {},
+  // Cart lines priced with their options (v1.6); used instead of [lines] when given.
+  List<({MenuItem item, int unitCents, int qty})>? priced,
   required DateTime now,
   int timesUsed = 0,
   int? timesUsedByMe,
@@ -87,9 +89,9 @@ CouponQuote quoteCoupon({
   if (c.endsAt != null && !now.isBefore(c.endsAt!)) throw const CouponError('coupon_expired');
 
   var eligible = 0;
-  lines.forEach((m, qty) {
-    if (qty >= 1 && qty <= 50 && (c.stallId == null || m.stallId == c.stallId)) eligible += m.priceCents * qty;
-  });
+  for (final l in priced ?? [for (final e in lines.entries) (item: e.key, unitCents: e.key.priceCents, qty: e.value)]) {
+    if (l.qty >= 1 && l.qty <= 50 && (c.stallId == null || l.item.stallId == c.stallId)) eligible += l.unitCents * l.qty;
+  }
   if (eligible == 0) throw const CouponError('coupon_not_applicable');
   if (eligible < c.minOrderCents) throw const CouponError('coupon_min_order');
   if (c.usageLimit != null && timesUsed >= c.usageLimit!) throw const CouponError('coupon_used_up');

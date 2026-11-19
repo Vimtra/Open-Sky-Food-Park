@@ -3,7 +3,10 @@ import 'package:material_ui/material_ui.dart';
 import '../data/catalog.dart';
 import '../data/coupons.dart';
 import '../data/models.dart';
+import '../data/options.dart';
 import '../state/app_state.dart';
+import '../state/ready_alerts.dart';
+import '../ui/options_sheet.dart';
 import '../theme/tokens.dart';
 import '../ui/routes.dart';
 import '../ui/widgets.dart';
@@ -45,6 +48,8 @@ class _CartScreenState extends State<CartScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     openOrder(context, order.id, replace: widget.standalone);
+    // Ask for notifications now, when the reason is obvious (Android 13+ shows its own prompt once).
+    if (app.readyAlerts) ReadyAlerts.askPermission();
   }
 
   @override
@@ -92,6 +97,23 @@ class _CartScreenState extends State<CartScreen> {
               style: OsText.weight(OsText.label, 400).copyWith(color: OsColors.ink700)),
           const SizedBox(height: 18),
           for (final g in groups) ...[_StallGroup(group: g), const SizedBox(height: 14)],
+          if (_suggestions(app) case final picks when picks.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('Add to your order', style: OsText.heading),
+            const SizedBox(height: 12),
+            // Not clipped, so the cards slide out to the screen edges past the page's side padding.
+            SizedBox(
+              height: 250,
+              child: ListView.separated(
+                clipBehavior: Clip.none,
+                scrollDirection: Axis.horizontal,
+                itemCount: picks.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => DishCard(item: picks[i], stall: app.catalog.stallById[picks[i].stallId]!, showStall: true),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
           const SizedBox(height: 10),
           Text('How do you want it?', style: OsText.subheading),
           const SizedBox(height: 10),
@@ -116,6 +138,7 @@ class _CartScreenState extends State<CartScreen> {
             const SizedBox(height: 12),
             TextField(controller: _table, keyboardType: TextInputType.text, decoration: InputDecoration(labelText: 'Table number', errorText: tableErr)),
           ],
+          if (park.scheduledOrdersEnabled) ...[const SizedBox(height: 18), const _PickupTime()],
           const SizedBox(height: 18),
           TextField(
             controller: _name,
@@ -158,7 +181,8 @@ class _CartScreenState extends State<CartScreen> {
             ]),
           ),
           if (!park.orderingEnabled) ...[const SizedBox(height: 12), _warn('The park is not taking online orders right now.')],
-          if (app.blocked) ...[const SizedBox(height: 12), _warn('Remove the items marked unavailable to continue.')],
+          if (app.blocked) ...[const SizedBox(height: 12), _warn('Remove or change the items marked unavailable to continue.')],
+          if (app.pickupProblem() case final p?) ...[const SizedBox(height: 12), _warn(friendlyError(p))],
         ],
       );
     }
@@ -184,7 +208,7 @@ class _CartScreenState extends State<CartScreen> {
                         child: const Text('Sign in to place order'),
                       )
                     : FilledButton(
-                  onPressed: _busy || app.blocked || !park.orderingEnabled ? null : () => _place(app),
+                  onPressed: _busy || app.blocked || !park.orderingEnabled || app.pickupProblem() != null ? null : () => _place(app),
                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
                   child: _busy
                       ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: OsColors.night900))
@@ -236,7 +260,7 @@ class _StallGroup extends StatelessWidget {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(s.name, style: OsText.weight(OsText.bodyStrong, 800)),
-                  if (!s.isOpen) Text('Closed right now', style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.chili600)),
+                  if (!s.isOpen) Text(s.closedReason() == ClosedReason.closed ? 'Closed right now' : s.statusLabel, style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.chili600)),
                 ]),
               ),
               Text(money(group.subtotalCents), style: OsText.weight(OsText.label, 700).copyWith(fontFeatures: OsText.tabular)),
@@ -247,8 +271,8 @@ class _StallGroup extends StatelessWidget {
         for (final (i, l) in group.lines.indexed) ...[
           if (i > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 14), child: Divider()),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-            child: Row(children: [
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               FoodImage(l.item.imageUrl, radius: OsRadius.sm, width: 56, height: 56, greyed: !l.orderable),
               const SizedBox(width: 12),
               Expanded(
@@ -258,16 +282,40 @@ class _StallGroup extends StatelessWidget {
                     if (l.item.diet != null) const SizedBox(width: 6),
                     Expanded(child: Text(l.item.name, style: OsText.weight(OsText.label, 600).copyWith(fontSize: 15))),
                   ]),
+                  if (l.options.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(optionsText(l.options, money), style: OsText.small.copyWith(color: OsColors.ink700)),
+                  ],
                   const SizedBox(height: 2),
                   l.orderable
-                      ? Text('${money(l.item.priceCents)} each', style: OsText.small.copyWith(fontFeatures: OsText.tabular))
-                      : Text(l.item.isAvailable ? 'Truck closed' : 'Sold out', style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.chili600)),
+                      ? Text('${money(l.unitPriceCents)} each', style: OsText.small.copyWith(fontFeatures: OsText.tabular))
+                      : Text(
+                          !l.item.isAvailable
+                              ? 'Sold out'
+                              : l.problem != null
+                                  ? friendlyError(l.problem!)
+                                  : (s.closedReason() == ClosedReason.paused ? 'Truck is busy for a few minutes' : 'Truck closed'),
+                          style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.chili600)),
+                  _LineNote(line: l),
                 ]),
               ),
               const SizedBox(width: 8),
               l.orderable
-                  ? AddButton(item: l.item, stall: s)
-                  : TextButton(onPressed: () => app.remove(l.item.id), child: const Text('Remove')),
+                  ? LineStepper(
+                      qty: l.qty,
+                      label: l.item.name,
+                      onMinus: () => app.decrement(l.key),
+                      onPlus: l.qty >= maxQty ? null : () => app.increment(l.key),
+                    )
+                  : (l.item.isAvailable && s.isOpen && l.problem != null && l.problem != 'bad_options')
+                      // Only the choices are off (a required choice was added, an add-on sold out): choose again.
+                      ? TextButton(
+                          onPressed: () {
+                            app.remove(l.key);
+                            showOptionsSheet(context, l.item);
+                          },
+                          child: const Text('Choose'))
+                      : TextButton(onPressed: () => app.remove(l.key), child: const Text('Remove')),
             ]),
           ),
         ],
@@ -442,4 +490,134 @@ class _Offer extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+/// A note for the truck on one dish (v1.6, C16). Tap to add or change it.
+class _LineNote extends StatelessWidget {
+  const _LineNote({required this.line});
+  final CartLine line;
+
+  Future<void> _edit(BuildContext context) async {
+    final app = AppScope.read(context);
+    final saved = await showDialog<String>(context: context, builder: (_) => _NoteDialog(title: 'Note for ${line.item.name}', initial: line.note));
+    if (saved != null) app.setLineNote(line.key, saved);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final has = line.note.isNotEmpty;
+    return InkWell(
+      onTap: () => _edit(context),
+      borderRadius: BorderRadius.circular(OsRadius.sm),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 36),
+        child: Row(children: [
+          Icon(has ? Icons.sticky_note_2_outlined : Icons.add, size: 15, color: OsColors.ember700),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              has ? line.note : 'Add a note',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: OsText.weight(OsText.small, has ? 500 : 700).copyWith(color: has ? OsColors.ink700 : OsColors.ember700, fontStyle: has ? FontStyle.italic : null),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Order for later (v1.6, C10). Shown only when the park turns it on: later today, 10 minutes to
+/// 12 hours ahead, and every truck in the cart open then. The server checks the same.
+class _PickupTime extends StatelessWidget {
+  const _PickupTime();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final at = app.pickupAt;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('When?', style: OsText.subheading),
+      const SizedBox(height: 10),
+      SegmentedButton<bool>(
+        segments: [
+          const ButtonSegment(value: false, label: Text('As soon as possible'), icon: Icon(Icons.bolt)),
+          ButtonSegment(value: true, label: Text(at == null ? 'Later today' : parkTime(at)), icon: const Icon(Icons.schedule)),
+        ],
+        selected: {at != null},
+        onSelectionChanged: (v) async {
+          if (!v.first) return app.setPickupAt(null);
+          final now = DateTime.now();
+          final first = now.add(const Duration(minutes: 15));
+          final t = await showTimePicker(
+            context: context,
+            initialTime: TimeOfDay.fromDateTime(at ?? first),
+            helpText: 'Pick-up time (later today)',
+          );
+          if (t != null) app.setPickupAt(DateTime(now.year, now.month, now.day, t.hour, t.minute));
+        },
+      ),
+    ]);
+  }
+}
+
+/// Owns its text controller, so it is disposed only after the dialog has finished closing.
+class _NoteDialog extends StatefulWidget {
+  const _NoteDialog({required this.title, required this.initial});
+  final String title, initial;
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  late final _c = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(widget.title),
+        content: TextField(
+          controller: _c,
+          autofocus: true,
+          maxLength: maxLineNote,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(hintText: 'For example: no onions'),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, _c.text), child: const Text('Save')),
+        ],
+      );
+}
+
+final _sweetOrDrink = RegExp(r'dessert|sweet|drink|beverage|lassi|falooda|shake|juice|tea|coffee|soda|ice', caseSensitive: false);
+
+/// "Add to your order" (C8): a few dishes from other trucks or a sweet or drink to round it off.
+/// Same scoring as Suggestions in web/src/components/cart-screen.tsx; from the menu only.
+List<MenuItem> _suggestions(AppState app) {
+  final c = app.catalog;
+  final gs = app.groups;
+  final inCart = {for (final g in gs) for (final l in g.lines) l.item.id};
+  final cartStalls = {for (final g in gs) g.stall.id};
+  final scored = [
+    for (final m in c.items)
+      if (!inCart.contains(m.id) && m.isAvailable && (c.stallById[m.stallId]?.isOpen ?? false))
+        (
+          m,
+          (cartStalls.contains(m.stallId) ? 0 : 2) +
+              (_sweetOrDrink.hasMatch('${c.categoryById[m.categoryId]?.name ?? ''} ${m.name}') ? 2 : 0) +
+              (m.isFeatured ? 1 : 0) +
+              (m.imageUrl != null ? 0.5 : 0),
+        ),
+  ]..sort((a, b) => b.$2 != a.$2 ? b.$2.compareTo(a.$2) : a.$1.sortOrder.compareTo(b.$1.sortOrder));
+  return scored.take(6).map((x) => x.$1).toList();
 }

@@ -4,6 +4,7 @@ import '../data/catalog.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
+import 'options_sheet.dart';
 import 'routes.dart';
 
 /// Shrinks to 0.96 while pressed (150ms, ease-out), the website's press feedback.
@@ -114,6 +115,13 @@ class AddButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final qty = app.qtyOf(item.id);
+    // Dishes with options (size, spice, add-ons) open the options sheet instead of adding straight away.
+    final custom = app.catalog.optionsOf(item.id).isNotEmpty;
+    void plus() => custom ? showOptionsSheet(context, item) : app.add(item.id);
+    void minus() {
+      final key = app.lastKeyOf(item.id);
+      if (key != null) app.decrement(key);
+    }
     final w = large ? 176.0 : 96.0, h = large ? 48.0 : 36.0;
     final style = OsText.weight(large ? OsText.bodyStrong : OsText.label, 800).copyWith(fontFeatures: OsText.tabular);
     final frame = BoxDecoration(
@@ -129,7 +137,8 @@ class AddButton extends StatelessWidget {
         height: h,
         alignment: Alignment.center,
         decoration: frame.copyWith(boxShadow: const []),
-        child: Text(item.isAvailable ? 'Closed' : 'Sold out', style: style.copyWith(color: OsColors.ink500, fontWeight: FontWeight.w600)),
+        child: Text(!item.isAvailable ? 'Sold out' : (stall.closedReason() == ClosedReason.paused ? 'Busy' : 'Closed'),
+            style: style.copyWith(color: OsColors.ink500, fontWeight: FontWeight.w600)),
       );
     }
 
@@ -141,14 +150,17 @@ class AddButton extends StatelessWidget {
       child: qty == 0
           ? Pressable(
               key: const ValueKey('add'),
-              semanticLabel: 'Add ${item.name} to cart',
-              onTap: () => app.add(item.id),
+              semanticLabel: custom ? 'Choose options for ${item.name}' : 'Add ${item.name} to cart',
+              onTap: plus,
               child: Container(
                 width: w,
                 height: h,
                 alignment: Alignment.center,
                 decoration: frame,
-                child: Text('ADD', style: style.copyWith(color: OsColors.leaf600, letterSpacing: 0.6)),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('ADD', style: style.copyWith(color: OsColors.leaf600, letterSpacing: 0.6, height: custom ? 1.1 : null)),
+                  if (custom) Text('options', style: OsText.weight(OsText.caption, 600).copyWith(color: OsColors.ink500, fontSize: 10, height: 1.1)),
+                ]),
               ),
             )
           : Container(
@@ -158,9 +170,9 @@ class AddButton extends StatelessWidget {
               decoration: frame,
               child: Row(
                 children: [
-                  _StepButton(icon: Icons.remove, label: qty == 1 ? 'Remove ${item.name}' : 'Decrease ${item.name}', onTap: () => app.decrement(item.id), width: large ? 52 : 32),
+                  _StepButton(icon: Icons.remove, label: qty == 1 ? 'Remove ${item.name}' : 'Decrease ${item.name}', onTap: minus, width: large ? 52 : 32),
                   Expanded(child: Center(child: Text('$qty', style: style.copyWith(color: OsColors.leaf600)))),
-                  _StepButton(icon: Icons.add, label: 'Increase ${item.name}', onTap: qty >= maxQty ? null : () => app.add(item.id), width: large ? 52 : 32),
+                  _StepButton(icon: Icons.add, label: custom ? 'Add another ${item.name} with options' : 'Increase ${item.name}', onTap: qty >= maxQty ? null : plus, width: large ? 52 : 32),
                 ],
               ),
             ),
@@ -193,13 +205,19 @@ class OpenStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = stall.isOpen ? OsColors.leaf600 : OsColors.ink500;
+    // v1.6: a truck can be paused for a few minutes ("Busy · back at 7:40 PM") or outside its hours.
+    final reason = stall.closedReason();
+    final (dot, text) = switch (reason) {
+      null => (OsColors.leaf600, OsColors.leaf600),
+      ClosedReason.paused => (OsColors.ember500, OsColors.ember700),
+      _ => (OsColors.ink300, OsColors.ink500),
+    };
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 8, height: 8, decoration: BoxDecoration(color: stall.isOpen ? OsColors.leaf600 : OsColors.ink300, shape: BoxShape.circle)),
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(stall.isOpen ? 'Open now' : 'Closed', style: OsText.weight(OsText.small, 700).copyWith(color: c)),
+        Flexible(child: Text(reason == ClosedReason.closed ? 'Closed' : stall.statusLabel, style: OsText.weight(OsText.small, 700).copyWith(color: text))),
       ],
     );
   }

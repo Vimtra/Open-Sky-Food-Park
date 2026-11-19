@@ -108,8 +108,8 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | A13 | Admin later: payouts (A4), customers (A5), message replies (A6), schedules (A8), activity log (A9) | A | todo | A4, A6 wait on the owner |
 | A14 | iOS app: same features as Android, after B finishes each one | A | todo | follows B7–B9 |
 | B7 | Android catch-up (no contract needed): coupons v1.5, `/api/payments/confirm`, Help + Contact, order again, recent searches | B | doing | done: coupons, Help + Contact, order again, recent searches. Left: `/api/payments/confirm` (needs Stripe in the app, B4) |
-| B8 | Android after v1.6: dish options, favourites synced, ratings, per-dish notes, wait time, order for later | B | todo | after A10 |
-| B9 | "Food is ready" alerts (C3): Firebase push in the Android app + sender in `supabase/functions/notify/` (handed to B) | B | todo | needs the owner's Firebase project; device tokens table comes in A10 |
+| B8 | Android after v1.6: dish options, favourites synced, ratings, per-dish notes, wait time, order for later | B | doing | done in demo mode (2026-11-19). Live-only parts wait for B2: wait times, popular dishes, public stars, synced favourites/ratings |
+| B9 | "Food is ready" alerts (C3): Firebase push in the Android app + sender in `supabase/functions/notify/` (handed to B) | B | doing | done: on-phone alert with its own channel + bell sound (app open or in background). Left: FCM push for a closed app, needs the owner's Firebase project + B2 |
 | B10 | Web stall dashboard (handed to B): hours + pause (S1), prep time on accept (S2), history + today's sales (S3), own menu editing (S4), print ticket (S5), ratings (S6), auto-accept (S7) | B | doing | done: print ticket (S5), Today tab with sales + history (S3). Left: S1, S2, S4, S6, S7 after v1.6 |
 
 ## 5. Waiting on the owner
@@ -706,3 +706,49 @@ Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyErr
   - `totalsOf()` and `salesCsv()` in `lib/reports.ts` if you want the same sums or a CSV.
 - Checked in demo mode in the browser: search, the details panel, a $2.50 partial refund, cancelling (the full refund was queued and then sent; the order shows Refunded), the reports, the chart hover and the CSV. `tsc` and `eslint` are clean; `next build` passes; the database tests are unchanged (138).
 
+### 2026-11-19 · B · DONE (B8 Android v1.6 in demo mode; B9 part 1: "food is ready" alert with its own sound)
+
+**Android, contract v1.6 (`mobile/`), same rules as your website:**
+- **Dish options (C2):** `lib/data/options.dart` is a port of `lib/options.ts` (`checkChoice`, `priceWithOptions`, `defaultChoice`, `optionIdsFromCopy`, `ruleText`). It also copies your `friendlyError` wording.
+  - "ADD / options" opens a sheet: radio or checkbox per group, the rule, extra prices, sold-out options greyed out, a note and a quantity.
+  - In the cart, the same dish with different options is a separate line (`lineKey` = id plus the sorted option ids).
+  - Carts saved by the old build migrate.
+  - Coupons price lines with their options.
+- **Per-dish notes (C16):** "+ Add a note" on each cart line. Notes and options show on the order page.
+- **Truck hours and pause (S1):** `Stall.closedReason()` is your `closedReason()`, read on the park's clock through the `timezone` package. Labels read "Busy · back at 10:48 PM", "Opens 5:00 PM" or "Closed now". Paused or closed trucks block ADD and the cart.
+- **Favourites (C4):** a heart on the dish and truck pages, and Account → Favourites. Signed out, the heart offers sign-in.
+- **Ratings (C5):** "How was <truck>?" on each handed-over part; rating again replaces it.
+- **Ready by and refunds:** the order page shows "Ready by …" when `ready_by` is set and "Refund of $X on its way" when `refunded_cents` > 0.
+- **Order for later (C10):** "When?" in the cart, shown only when `scheduled_orders_enabled` is on. The app runs the same checks as `place_order`.
+- **Order again:** keeps options and notes. It skips dishes whose options changed.
+- **Cart "Add to your order" (C8):** your `Suggestions` scoring.
+- **Not in the app yet (need live data, B2):**
+  - wait times, `stall_wait_times`
+  - "Popular at the park", `popular_items`
+  - public stars, `stall_rating_summary`
+  - syncing favourites and ratings to their tables (demo keeps them on the phone)
+
+**"Food is ready" alert (B9, part 1):**
+- `lib/state/ready_alerts.dart` uses `flutter_local_notifications`.
+- **Channel:** its own Android channel, id `order_ready`, named "Food is ready", at the highest importance.
+- **Sound:** an original bell file, `android/app/src/main/res/raw/order_ready.wav`, which I synthesized. Customers can change or mute this channel alone in Android settings.
+- **Look:** a long double-buzz, an orange light, a service-bell status icon (`drawable/ic_stat_ready`), park orange, and the dish list in the expanded view. Tapping it opens that order.
+- **Fires** when a token turns Ready while the app is open or in the background (demo: the demo timer).
+- **Permission:** asked once, right after the first order (Android 13+).
+- **Settings → Notifications:** an on/off switch plus "Hear the alert".
+- **Also changed:**
+  - The app icon is now the Open Sky logo on night navy (adaptive icon). Android 16 shows it in the notification shade.
+  - The app label is now "Open Sky".
+  - `compileSdk` is 37, which the notifications plugin needs; `targetSdk` is unchanged.
+- **For B9 part 2 (closed app):**
+  - An FCM push from `supabase/functions/notify/` must send `android.notification.channel_id = "order_ready"` and `sound = "order_ready"`, so it sounds the same.
+  - This needs the owner's Firebase project (`google-services.json`, kept out of git) and B2 for `register_device`.
+- **For A14 (iOS):** reuse the same `order_ready.wav` as the notification sound (iOS plays .wav under 30 s), so both apps sound alike.
+
+**Checked:**
+- `flutter analyze` clean; 18 tests pass, 9 of them new (options rules, prices, line keys, coupon with options, hours past midnight in park time).
+- On the emulator, using a temporary test option group and a paused truck in the app's local catalog copy (since restored from `shared/`):
+  - options sheet, cart lines and totals, notes, the Choose fix for stale options
+  - "Busy · back at …", order again skipping, rating, favourites, suggestions
+  - the permission prompt on a clean install
+  - the alert in the shade (Android reports channel `order_ready`, sound `raw/order_ready`, importance max); tapping opens the order
