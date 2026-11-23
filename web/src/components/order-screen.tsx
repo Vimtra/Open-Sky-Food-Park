@@ -2,12 +2,17 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ChevronLeft, CreditCard, Phone, Receipt } from "lucide-react";
+import { ChevronLeft, CreditCard, Phone, Receipt, RotateCcw, Timer } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { backend, isDemo, type PaymentStart } from "@/lib/backend";
-import { dayAndTime, friendlyError, imageSrc, money, ticketGuidance, ticketLabel } from "@/lib/format";
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
+import { dayAndTime, friendlyError, imageSrc, money, ticketGuidance, ticketLabel, timeOfDay } from "@/lib/format";
+import { optionsText } from "@/lib/options";
+import { useOrderAgain } from "@/lib/reorder";
 import { useOrder, useSession } from "@/lib/hooks";
-import type { Order, StallOrder, TicketStatus } from "@/lib/types";
+import type { Order, OrderRating, StallOrder, TicketStatus } from "@/lib/types";
+import { RateTruck } from "./rate-truck";
 import { Button, ButtonLink, cn, Container, DietMark, EmptyState, Notice, Spinner } from "./ui";
 
 const StripePay = dynamic(() => import("./stripe-pay").then((m) => m.StripePay), {
@@ -59,7 +64,7 @@ function Progress({ status }: { status: TicketStatus }) {
   );
 }
 
-function TokenCard({ so, order }: { so: StallOrder; order: Order }) {
+function TokenCard({ so, order, rating, onRated }: { so: StallOrder; order: Order; rating?: OrderRating; onRated: () => void }) {
   const ready = so.status === "ready";
   const muted = so.status === "cancelled" || so.status === "completed";
   return (
@@ -86,6 +91,11 @@ function TokenCard({ so, order }: { so: StallOrder; order: Order }) {
           <p className={cn("mt-1.5 text-[0.9375rem] leading-5", ready ? "font-bold text-leaf-700" : "text-ink-700")} aria-live="polite">
             {ticketGuidance(so, order)}
           </p>
+          {so.status === "preparing" && so.ready_by && (
+            <p className="mt-1 inline-flex items-center gap-1 text-label font-bold text-ink-900">
+              <Timer className="size-4" aria-hidden /> Ready by about {timeOfDay(so.ready_by)}
+            </p>
+          )}
           {so.stall?.location_label && <p className="mt-1 text-small text-ink-500">{so.stall.location_label}</p>}
         </div>
       </div>
@@ -97,7 +107,11 @@ function TokenCard({ so, order }: { so: StallOrder; order: Order }) {
           <li key={item.id} className="flex items-start gap-2 text-label font-medium text-ink-700">
             <span className="w-6 shrink-0 font-bold text-ink-900 tabular-nums">{item.qty}×</span>
             <DietMark diet={item.diet} className="mt-0.5" />
-            <span className="min-w-0 flex-1">{item.name}</span>
+            <span className="min-w-0 flex-1">
+              {item.name}
+              {(item.options ?? []).length > 0 && <span className="block text-small text-ink-500">{optionsText(item.options ?? [], money)}</span>}
+              {item.note && <span className="block text-small text-ink-500">“{item.note}”</span>}
+            </span>
             <span className="tabular-nums">{money(item.unit_price_cents * item.qty)}</span>
           </li>
         ))}
@@ -109,6 +123,7 @@ function TokenCard({ so, order }: { so: StallOrder; order: Order }) {
           Call {so.stall.name}
         </a>
       )}
+      {so.status === "completed" && <RateTruck key={rating?.updated_at ?? "new"} so={so} existing={rating} onSaved={onRated} />}
     </article>
   );
 }
@@ -261,6 +276,12 @@ export function OrderScreen({ id }: { id: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [again, setAgain] = useState<string[] | null>(null);
+  const orderAgain = useOrderAgain();
+  const router = useRouter();
+  const done = order && order.stall_orders.some((s) => s.status === "completed");
+  const { data: ratings, mutate: reloadRatings } = useSWR(done ? `ratings:${id}` : null, () => backend().listMyRatings(id));
+  const { data: refunds } = useSWR(order && order.payment_method === "online" && order.status !== "awaiting_payment" ? `refunds:${id}` : null, () => backend().listRefunds(id));
 
   if (isLoading || sessionLoading || (order === undefined && !error)) {
     return (
@@ -321,6 +342,12 @@ export function OrderScreen({ id }: { id: string }) {
         <span>{order.fulfilment === "table" ? `Table ${order.table_no}` : "Pickup"}</span>
         <span aria-hidden>·</span>
         <span>{paymentText}</span>
+        {order.pickup_at && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="font-bold text-ink-900">For {timeOfDay(order.pickup_at)}</span>
+          </>
+        )}
       </p>
 
       <div className="mt-6 space-y-4">
@@ -330,8 +357,18 @@ export function OrderScreen({ id }: { id: string }) {
           <Notice>Pay each stall for its part when you collect. Show the token number.</Notice>
         )}
 
+        {(refunds ?? []).filter((r) => r.status !== "failed").length > 0 && (
+          <Notice tone={refunds!.every((r) => r.status === "succeeded") ? "success" : "info"}>
+            {refunds!
+              .filter((r) => r.status !== "failed")
+              .map((r) => `${money(r.amount_cents)} ${r.status === "succeeded" ? "refunded to your card or wallet" : "refund on its way"} (${r.reason.toLowerCase()})`)
+              .join(" · ")}
+            . Card refunds usually show within 5–10 business days.
+          </Notice>
+        )}
+
         {order.stall_orders.map((so) => (
-          <TokenCard key={so.id} so={so} order={order} />
+          <TokenCard key={so.id} so={so} order={order} rating={(ratings ?? []).find((r) => r.stall_order_id === so.id)} onRated={() => void reloadRatings()} />
         ))}
       </div>
 
@@ -387,7 +424,26 @@ export function OrderScreen({ id }: { id: string }) {
         </Notice>
       )}
 
+      {again && (
+        <Notice tone="warn" className="mt-4">
+          Some dishes could not go back in your cart: {again.join("; ")}.
+        </Notice>
+      )}
+
       <div className="mt-6 flex flex-wrap items-center gap-3">
+        {order.status !== "awaiting_payment" && (
+          <Button
+            onClick={() => {
+              const r = orderAgain(order);
+              if (r.added && !r.skipped.length) router.push("/cart");
+              else setAgain(r.skipped.length ? r.skipped : ["nothing from this order is available right now"]);
+              if (r.added && r.skipped.length) setTimeout(() => router.push("/cart"), 2500);
+            }}
+          >
+            <RotateCcw className="size-4" aria-hidden />
+            Order again
+          </Button>
+        )}
         <ButtonLink href="/" variant="outline">
           Order something else
         </ButtonLink>

@@ -407,6 +407,18 @@ export interface ItemSalesRow {
   sales_cents: number;
 }
 
+/** `stall_rating_summary()`; empty unless ratings are public (or the caller is staff). */
+export interface RatingSummary {
+  stall_id: string;
+  avg_stars: number;
+  ratings: number;
+}
+
+export interface PopularItem {
+  menu_item_id: string;
+  orders: number;
+}
+
 export interface HourRow {
   weekday: number;
   hour: number;

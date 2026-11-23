@@ -546,6 +546,12 @@ await as("anon");
 const waits = await rows("select * from public.stall_wait_times()");
 check("wait times: one row per truck, no guess without enough tickets", waits.length === catalog.stalls.length && waits.every((w) => w.typical_prep_mins === null));
 
+// ---- popular dishes (0007_popular.sql)
+await as("anon");
+const popular = await rows("select * from public.popular_items(5)");
+check("popular dishes come from real orders, at least 3 each", popular.length > 0 && popular.length <= 5 && popular.every((p) => p.orders >= 3), JSON.stringify(popular));
+check("popular dishes: limit is capped", (await rows("select * from public.popular_items(999)")).length <= 20);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map((f) => ` - ${f}`).join("\n"));

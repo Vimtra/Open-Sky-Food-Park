@@ -3,8 +3,14 @@ import type {
   Catalog,
   Coupon,
   CouponQuote,
+  Favorite,
   HourRow,
   ItemSalesRow,
+  OrderRating,
+  PopularItem,
+  RatingSummary,
+  StallStatus,
+  StallWait,
   OrderStatus,
   Refund,
   SalesRow,
@@ -47,6 +53,15 @@ export type CategoryInput = Partial<MenuCategory> & Pick<MenuCategory, "stall_id
 export type ItemInput = Partial<MenuItem> & Pick<MenuItem, "stall_id" | "category_id" | "name" | "price_cents">;
 export type BannerInput = Partial<Banner> & Pick<Banner, "title">;
 export type CouponInput = Partial<Coupon> & Pick<Coupon, "code" | "title" | "kind" | "value">;
+
+/** A dish's option groups as saved from the admin panel or stall dashboard. Omit ids to create. */
+export interface OptionGroupInput {
+  id?: string;
+  name: string;
+  min_select: number;
+  max_select: number;
+  options: { id?: string; name: string; price_cents: number; is_default: boolean; is_available: boolean }[];
+}
 
 /** Admin order search. Dates are "YYYY-MM-DD" in the park's time zone. */
 export interface OrderSearch {
@@ -130,11 +145,25 @@ export interface Backend {
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   setStallOpen(stallId: string, open: boolean): Promise<void>;
 
+  // favourites, ratings, live truck info (contract v1.6)
+  /** The signed-in customer's saved dishes and trucks. Empty when signed out. */
+  listFavorites(): Promise<Favorite[]>;
+  setFavorite(target: { menu_item_id?: string; stall_id?: string }, on: boolean): Promise<void>;
+  listMyRatings(orderId: string): Promise<OrderRating[]>;
+  rateStallOrder(stallOrderId: string, stars: number, comment: string | null): Promise<void>;
+  getRatingSummary(): Promise<RatingSummary[]>;
+  getStallStatus(): Promise<StallStatus[]>;
+  getWaitTimes(): Promise<StallWait[]>;
+  /** Dishes with at least 3 real orders in the last 30 days, most ordered first. */
+  popularItems(limit?: number): Promise<PopularItem[]>;
+  /** Admin or that truck's staff: replace a dish's option groups. */
+  saveItemOptions(itemId: string, groups: OptionGroupInput[]): Promise<void>;
+
   // coupons
   /** Coupons the park lists under "Offers" (active, listed, not expired). */
   listOffers(): Promise<Coupon[]>;
   /** Checks a code against the cart and returns the discount, or throws a coupon_* error. */
-  quoteCoupon(code: string, items: { menu_item_id: string; qty: number }[]): Promise<CouponQuote>;
+  quoteCoupon(code: string, items: { menu_item_id: string; qty: number; option_ids?: string[] }[]): Promise<CouponQuote>;
 
   // help & support
   /** Sends a Contact us message. Works signed in or not. */

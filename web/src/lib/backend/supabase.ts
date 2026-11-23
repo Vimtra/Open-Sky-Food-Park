@@ -3,7 +3,28 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { addDays, parkDate } from "../reports";
-import type { Catalog, Coupon, CouponWithUse, HourRow, ItemSalesRow, Order, Park, Profile, Refund, SalesRow, Session, StallLogin, StallTicket, SupportRequest } from "../types";
+import type {
+  Catalog,
+  Coupon,
+  CouponWithUse,
+  Favorite,
+  HourRow,
+  ItemSalesRow,
+  Order,
+  OrderRating,
+  Park,
+  PopularItem,
+  Profile,
+  RatingSummary,
+  Refund,
+  SalesRow,
+  Session,
+  StallLogin,
+  StallStatus,
+  StallTicket,
+  StallWait,
+  SupportRequest,
+} from "../types";
 import { filterOrders, slugify, type Backend, type Unsubscribe } from "./types";
 
 const STALL_SUMMARY = "id,slug,name,location_label,logo_url,phone";
@@ -94,13 +115,16 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     mode: "supabase",
 
     async getCatalog() {
-      const [park, cravings, banners, stalls, categories, items] = await Promise.all([
+      const [park, cravings, banners, stalls, categories, items, groups, options, hours] = await Promise.all([
         db.from("park_settings").select("*").eq("id", 1).single(),
         db.from("cravings").select("*").order("sort_order"),
         db.from("banners").select("*").order("sort_order"),
         db.from("stalls").select("*").order("sort_order"),
         db.from("menu_categories").select("*").order("sort_order"),
         db.from("menu_items").select("*").order("sort_order"),
+        db.from("menu_option_groups").select("*").order("sort_order"),
+        db.from("menu_options").select("*").order("sort_order"),
+        db.from("stall_hours").select("*"),
       ]);
       const parkRow = unwrap(park) as Park;
       return {
@@ -110,10 +134,79 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
         stalls: unwrap(stalls),
         menu_categories: unwrap(categories),
         menu_items: unwrap(items),
+        menu_option_groups: unwrap(groups),
+        menu_options: unwrap(options),
+        stall_hours: (unwrap(hours) as { opens: string; closes: string }[]).map((h) => ({ ...h, opens: h.opens.slice(0, 5), closes: h.closes.slice(0, 5) })),
       } as Catalog;
     },
 
     onCatalogChange: (cb) => watch(["menu_items", "stalls"], cb),
+
+    async listFavorites() {
+      const { data } = await db.auth.getSession();
+      if (!data.session) return [];
+      return unwrap(await db.from("favorites").select("*").order("created_at", { ascending: false })) as Favorite[];
+    },
+
+    async setFavorite(target, on) {
+      const session = await requireSession();
+      const col = target.menu_item_id ? "menu_item_id" : "stall_id";
+      const id = target.menu_item_id ?? target.stall_id!;
+      if (on) {
+        const { error } = await db.from("favorites").insert({ user_id: session.user_id, [col]: id });
+        // already saved is fine
+        if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
+      } else {
+        check(await db.from("favorites").delete().eq("user_id", session.user_id).eq(col, id));
+      }
+    },
+
+    async listMyRatings(orderId) {
+      return unwrap(await db.from("order_ratings").select("*").eq("order_id", orderId)) as OrderRating[];
+    },
+
+    async rateStallOrder(stallOrderId, stars, comment) {
+      check(await db.rpc("rate_stall_order", { p_stall_order_id: stallOrderId, p_stars: stars, p_comment: comment }));
+    },
+
+    async getRatingSummary() {
+      const rows = unwrap(await db.rpc("stall_rating_summary")) as RatingSummary[];
+      return rows.map((r) => ({ ...r, avg_stars: Number(r.avg_stars) }));
+    },
+
+    async getStallStatus() {
+      return unwrap(await db.rpc("stall_status")) as StallStatus[];
+    },
+
+    async getWaitTimes() {
+      return unwrap(await db.rpc("stall_wait_times")) as StallWait[];
+    },
+
+    async popularItems(limit = 8) {
+      return unwrap(await db.rpc("popular_items", { p_limit: limit })) as PopularItem[];
+    },
+
+    async saveItemOptions(itemId, groups) {
+      // Keep ids that still exist (carts refer to them); remove the rest; add new ones.
+      const existing = unwrap(await db.from("menu_option_groups").select("id").eq("menu_item_id", itemId)) as { id: string }[];
+      const keep = new Set(groups.map((g) => g.id).filter(Boolean));
+      const drop = existing.map((g) => g.id).filter((id) => !keep.has(id));
+      if (drop.length) check(await db.from("menu_option_groups").delete().in("id", drop));
+      for (const [gi, g] of groups.entries()) {
+        const groupRow = { menu_item_id: itemId, name: g.name, min_select: g.min_select, max_select: g.max_select, sort_order: gi };
+        const saved = unwrap(
+          await (g.id ? db.from("menu_option_groups").update(groupRow).eq("id", g.id).select("id").single() : db.from("menu_option_groups").insert(groupRow).select("id").single()),
+        ) as { id: string };
+        const have = unwrap(await db.from("menu_options").select("id").eq("group_id", saved.id)) as { id: string }[];
+        const keepOpts = new Set(g.options.map((o) => o.id).filter(Boolean));
+        const dropOpts = have.map((o) => o.id).filter((id) => !keepOpts.has(id));
+        if (dropOpts.length) check(await db.from("menu_options").delete().in("id", dropOpts));
+        for (const [oi, o] of g.options.entries()) {
+          const row = { group_id: saved.id, name: o.name, price_cents: o.price_cents, is_default: o.is_default, is_available: o.is_available, sort_order: oi };
+          check(await (o.id ? db.from("menu_options").update(row).eq("id", o.id) : db.from("menu_options").insert(row)));
+        }
+      }
+    },
 
     getSession: () => loadSession(),
 

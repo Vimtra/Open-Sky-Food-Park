@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Star } from "lucide-react";
 import { dishBlurb, imageSrc, money } from "@/lib/format";
+import { useCatalog, useRatingSummary, useStallLive } from "@/lib/hooks";
+import { availability } from "@/lib/stall-status";
 import type { MenuItem, Stall } from "@/lib/types";
+import { FavoriteButton } from "./favorite-button";
 import { AddButton } from "./add-button";
 import { buttonClass, cn, DietMark, FoodImage } from "./ui";
 
@@ -13,11 +16,29 @@ export function dishHref(stall: Pick<Stall, "slug">, item: Pick<MenuItem, "id">)
   return `/stall/${stall.slug}/${dot >= 0 ? item.id.slice(dot + 1) : item.id}`;
 }
 
-export function OpenStatus({ stall, className }: { stall: Pick<Stall, "is_open">; className?: string }) {
+/** Open now (with the typical wait from real tickets), busy, or closed; plus stars once ratings are public. */
+export function OpenStatus({ stall, className }: { stall: Stall; className?: string }) {
+  const { index } = useCatalog();
+  const live = useStallLive();
+  const ratings = useRatingSummary();
+  const a = availability(stall, {
+    status: live.status.get(stall.id),
+    wait: live.waits.get(stall.id),
+    hours: index?.catalog.stall_hours ?? [],
+    tz: index?.catalog.park.timezone ?? "America/Los_Angeles",
+  });
+  const r = ratings.get(stall.id);
   return (
-    <span className={cn("inline-flex items-center gap-1.5 font-semibold", stall.is_open ? "text-leaf-600" : "text-ink-500", className)}>
-      <span className={cn("size-2 rounded-full", stall.is_open ? "bg-leaf-600" : "bg-ink-300")} aria-hidden />
-      {stall.is_open ? "Open now" : "Closed"}
+    <span className={cn("inline-flex flex-wrap items-center gap-x-1.5 font-semibold", a.accepting ? "text-leaf-600" : "text-ink-500", className)}>
+      <span className={cn("size-2 rounded-full", a.accepting ? "bg-leaf-600" : "bg-ink-300")} aria-hidden />
+      {a.accepting ? "Open now" : (a.label ?? "Closed")}
+      {a.accepting && a.label && <span className="font-medium text-ink-700">· {a.label}</span>}
+      {r && (
+        <span className="inline-flex items-center gap-0.5 font-bold text-ink-900" aria-label={`${r.avg_stars} out of 5 from ${r.ratings} ratings`}>
+          · <Star className="size-3.5 fill-ember-500 text-ember-500" aria-hidden />
+          {r.avg_stars.toFixed(1)} <span className="font-medium text-ink-500">({r.ratings})</span>
+        </span>
+      )}
     </span>
   );
 }
@@ -105,6 +126,7 @@ export function DishCard({ item, stall, showStall = false, className }: { item: 
           <FoodImage src={imageSrc(item.image_url)} alt="" className={cn("aspect-square w-full", !item.is_available && "opacity-50 grayscale")} />
         </Link>
         <AddButton item={item} stallOpen={stall.is_open} className="absolute right-2 -bottom-3" />
+        <FavoriteButton target={{ menu_item_id: item.id }} name={item.name} className="absolute top-2 right-2" />
       </div>
       <div className="mt-5 flex items-start gap-1.5">
         <DietMark diet={item.diet} className="mt-0.5" />

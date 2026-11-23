@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { backend, type Area, type Unsubscribe } from "./backend";
-import type { Catalog, MenuCategory, MenuItem, Stall } from "./types";
+import { indexOptions, type OptionGroupView } from "./options";
+import type { Catalog, MenuCategory, MenuItem, Stall, StallStatus, StallWait } from "./types";
 
 // One live subscription per key, shared by every component that uses the hook.
 const live = new Map<string, { count: number; stop: Unsubscribe }>();
@@ -39,6 +40,8 @@ export interface CatalogIndex {
   itemById: Map<string, MenuItem>;
   itemsByStall: Map<string, MenuItem[]>;
   categoriesByStall: Map<string, MenuCategory[]>;
+  /** v1.6: a dish's option groups (empty when it has none). */
+  optionsByItem: Map<string, OptionGroupView[]>;
 }
 
 function indexCatalog(catalog: Catalog): CatalogIndex {
@@ -60,6 +63,7 @@ function indexCatalog(catalog: Catalog): CatalogIndex {
     itemById: new Map(catalog.menu_items.map((m) => [m.id, m])),
     itemsByStall,
     categoriesByStall,
+    optionsByItem: indexOptions(catalog),
   };
 }
 
@@ -126,3 +130,41 @@ export function useNow(intervalMs = 30_000) {
   }, [intervalMs]);
   return now;
 }
+
+/** Which trucks are taking orders right now, and their typical wait. Refreshes every minute. */
+export function useStallLive() {
+  const { data: status } = useSWR("stalls:status", () => backend().getStallStatus(), { refreshInterval: 60_000, revalidateOnFocus: true });
+  const { data: waits } = useSWR("stalls:waits", () => backend().getWaitTimes(), { refreshInterval: 120_000 });
+  useLive("stalls:status", (onChange) => backend().onCatalogChange(onChange));
+  return useMemo(
+    () => ({
+      status: new Map<string, StallStatus>((status ?? []).map((s) => [s.stall_id, s])),
+      waits: new Map<string, StallWait>((waits ?? []).map((w) => [w.stall_id, w])),
+      loaded: Boolean(status),
+    }),
+    [status, waits],
+  );
+}
+
+/** The signed-in customer's favourites, with a toggle. Signed out: empty, and toggling asks to sign in. */
+export function useFavorites() {
+  const { session } = useSession("customer");
+  const key = session ? `favorites:${session.user_id}` : null;
+  const { data, mutate } = useSWR(key, () => backend().listFavorites(), { revalidateOnFocus: false });
+  const items = useMemo(() => new Set((data ?? []).map((f) => f.menu_item_id).filter(Boolean) as string[]), [data]);
+  const stalls = useMemo(() => new Set((data ?? []).map((f) => f.stall_id).filter(Boolean) as string[]), [data]);
+  const toggle = async (target: { menu_item_id?: string; stall_id?: string }) => {
+    const on = target.menu_item_id ? !items.has(target.menu_item_id) : !stalls.has(target.stall_id!);
+    await backend().setFavorite(target, on);
+    await mutate();
+    return on;
+  };
+  return { signedIn: Boolean(session), list: data ?? [], items, stalls, toggle };
+}
+
+/** Average stars per truck; empty unless the owner made ratings public. */
+export function useRatingSummary() {
+  const { data } = useSWR("ratings:summary", () => backend().getRatingSummary(), { revalidateOnFocus: false });
+  return useMemo(() => new Map((data ?? []).map((r) => [r.stall_id, r])), [data]);
+}
+

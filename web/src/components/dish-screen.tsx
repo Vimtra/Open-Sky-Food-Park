@@ -7,6 +7,7 @@ import { useCatalog, type CatalogIndex } from "@/lib/hooks";
 import type { Diet, MenuItem, Stall } from "@/lib/types";
 import { AddButton } from "./add-button";
 import { DishCard, OpenStatus } from "./cards";
+import { FavoriteButton } from "./favorite-button";
 import { Rail } from "./rail";
 import { ButtonLink, Container, DietMark, EmptyState, FoodImage, Notice } from "./ui";
 
@@ -147,7 +148,10 @@ export function DishScreen({ stallSlug, dishSlug }: { stallSlug: string; dishSlu
             <p className="mt-0.5 text-small text-ink-500">{stall.cuisines.join(", ")}</p>
 
             <div className="mt-5">
-              <AddButton item={item} stallOpen={stall.is_open} size="lg" className="shadow-sm" />
+              <div className="flex items-center gap-3">
+                <AddButton item={item} stallOpen={stall.is_open} size="lg" className="shadow-sm" />
+                <FavoriteButton target={{ menu_item_id: item.id }} name={item.name} variant="chip" />
+              </div>
               {!orderable && (
                 <p className="mt-2 text-small text-ink-500">
                   {item.is_available ? `${stall.name} is closed right now.` : "This dish is sold out right now."}

@@ -104,7 +104,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | B6 | App icon, splash, Android release build; iOS build path | B | todo | **Android only** (owner, 2026-11-18). iOS belongs to A: `mobile/ios/` + `.github/workflows/ios.yml` |
 | A10 | Contract v1.6: dish options, favourites, truck hours + pause, prep time, ratings, refunds, device tokens, report functions | A | done | `supabase/migrations/0006_v16.sql`; `npm run db:test` 138 passed. Not yet run on the owner's Supabase project |
 | A11 | Admin: reports + CSV (A1), order search and detail (A3), refunds via Stripe (A2) | A | done | Admin → Reports; Admin → Orders (search, detail drawer, refunds). Stripe path written, not yet run with real keys |
-| A12 | Web customer: order again (C1), dish options (C2), favourites (C4), ratings (C5), recent/popular search (C7), cart suggestions (C8), per-dish notes (C16), wait time (C11), order for later (C10) | A | todo | after A10 |
+| A12 | Web customer: order again (C1), dish options (C2), favourites (C4), ratings (C5), recent/popular search (C7), cart suggestions (C8), per-dish notes (C16), wait time (C11), order for later (C10) | A | done | 2026-11-19; checked in demo mode in the browser |
 | A13 | Admin later: payouts (A4), customers (A5), message replies (A6), schedules (A8), activity log (A9) | A | todo | A4, A6 wait on the owner |
 | A14 | iOS app: same features as Android, after B finishes each one | A | todo | follows B7–B9 |
 | B7 | Android catch-up (no contract needed): coupons v1.5, `/api/payments/confirm`, Help + Contact, order again, recent searches | B | doing | done: coupons, Help + Contact, order again, recent searches. Left: `/api/payments/confirm` (needs Stripe in the app, B4) |
@@ -706,6 +706,48 @@ Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyErr
   - `totalsOf()` and `salesCsv()` in `lib/reports.ts` if you want the same sums or a CSV.
 - Checked in demo mode in the browser: search, the details panel, a $2.50 partial refund, cancelling (the full refund was queued and then sent; the order shows Refunded), the reports, the chart hover and the CSV. `tsc` and `eslint` are clean; `next build` passes; the database tests are unchanged (138).
 
+### 2026-11-19 · A · DONE (A12: website customer features) + CONTRACT v1.6.1 (popular dishes)
+
+**CONTRACT v1.6.1** (`supabase/migrations/0007_popular.sql`, run after 0006; `setup.sql` rebuilt; db tests 140 passed)
+- `popular_items(p_limit default 8)` → `{menu_item_id, orders}`.
+- Only dishes with at least 3 real orders in the last 30 days are returned, so nothing shows until the park has orders.
+- Anyone may call it.
+
+**Website (customer):**
+- **Dish options (C2).**
+  - Dishes with options show "ADD / options" and open a picker: radio or checkbox per group, the rule ("Required · pick 1"), extra prices, a note for the truck, and a quantity.
+  - In the cart, the same dish with different options is a separate line. The cart (`lib/cart.ts`, store version 2) migrates old carts.
+- **Per-dish notes (C16):** "+ Add a note for this dish" on every cart line. The whole-order note stays.
+- **Admin:** the menu editor has a **Choices** editor for each dish.
+- **Settings:** two new switches, "Let customers order for later today" and "Show trucks' star ratings to customers".
+- **Shared option rules:** `lib/options.ts` has the same checks as `_price_lines` (`checkChoice`, `priceWithOptions`, `optionIdsFromCopy` for order again). Copy them for Android.
+- **Favourites (C4):**
+  - A heart on dish tiles, the dish page and the truck page.
+  - Account → Favourites.
+  - Signed out, the heart sends the customer to sign in.
+- **Order again (C1):**
+  - On the order page and under each past order.
+  - It refills the cart at today's prices with the same options and notes. It skips (and names) dishes that are gone, sold out, at a truck not taking orders, or whose options changed.
+- **Ratings (C5):**
+  - "How was <truck>?" with stars and a comment on each picked-up part of an order. Rating again updates it.
+  - The stars show on truck cards once the owner turns on public ratings.
+- **Live truck status and wait (S1, C11):**
+  - Truck labels read "Open now · ~12 min", "Busy · back at 7:40" or "Opens 5:00 PM", from `stall_status()` and `stall_wait_times()` (`lib/stall-status.ts` has the same rules).
+  - Paused or closed trucks block ADD and the cart.
+- **Search (C7):**
+  - Recent searches, kept on the device.
+  - "Popular at the park", from `popular_items`.
+- **Cart (C8, C10):**
+  - **"Add to your order":** up to 6 menu dishes from other trucks or sweets and drinks.
+  - **"When?":** "As soon as possible" or a time later today, in 15-minute steps (only when the owner switches it on).
+  - The order page shows "For 8:45 PM", "Ready by about 7:42" once accepted with a prep time, and refunds ("$X refund on its way").
+- Times show in the device's clock, like the rest of the site.
+
+**For B:**
+- Android needs the same features (B8).
+- The stall dashboard (B10) can now pass `prepMins` when accepting. Customers see "Ready by …".
+- The pause and hours UI (S1) is yours; the customer side already reacts to `paused_until` and `auto_hours`.
+
 ### 2026-11-19 · B · DONE (B8 Android v1.6 in demo mode; B9 part 1: "food is ready" alert with its own sound)
 
 **Android, contract v1.6 (`mobile/`), same rules as your website:**
@@ -752,3 +794,4 @@ Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyErr
   - "Busy · back at …", order again skipping, rating, favourites, suggestions
   - the permission prompt on a clean install
   - the alert in the shade (Android reports channel `order_ready`, sound `raw/order_ready`, importance max); tapping opens the order
+

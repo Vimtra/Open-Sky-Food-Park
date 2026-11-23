@@ -4,9 +4,11 @@ import Link from "next/link";
 import { AtSign, ChevronDown, ChevronLeft, MapPin, Phone, Search, Store, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { imageSrc, plural } from "@/lib/format";
-import { useCatalog } from "@/lib/hooks";
-import type { Diet } from "@/lib/types";
+import { useCatalog, useStallLive } from "@/lib/hooks";
+import { availability } from "@/lib/stall-status";
+import type { Diet, Stall } from "@/lib/types";
 import { MenuItemRow, OpenStatus } from "./cards";
+import { FavoriteButton } from "./favorite-button";
 import { ButtonLink, Chip, cn, Container, DietMark, EmptyState, Notice } from "./ui";
 
 const dietChips: { diet: Diet; label: string }[] = [
@@ -161,6 +163,7 @@ export function StallScreen({ slug }: { slug: string }) {
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line py-3 text-label">
         <OpenStatus stall={stall} />
+        <FavoriteButton target={{ stall_id: stall.id }} name={stall.name} variant="chip" className="ml-auto order-last" />
         {stall.location_label && (
           <span className="inline-flex items-center gap-1.5 text-ink-700">
             <MapPin className="size-4" aria-hidden />
@@ -186,11 +189,7 @@ export function StallScreen({ slug }: { slug: string }) {
         )}
       </div>
 
-      {!stall.is_open && (
-        <Notice tone="warn" className="mt-4">
-          {stall.name} is closed right now, so its dishes cannot be added. You can still look through the menu.
-        </Notice>
-      )}
+      <ClosedNotice stall={stall} />
 
       <div className="sticky top-0 z-20 -mx-4 mt-2 border-b border-line bg-white px-4 pt-3 md:top-[4.5rem]">
         <div className="flex items-center gap-2">
@@ -287,3 +286,22 @@ export function StallScreen({ slug }: { slug: string }) {
     </Container>
   );
 }
+
+/** Why this truck is not taking orders right now (closed, busy for a while, outside its hours). */
+function ClosedNotice({ stall }: { stall: Stall }) {
+  const { index } = useCatalog();
+  const live = useStallLive();
+  const a = availability(stall, { status: live.status.get(stall.id), hours: index?.catalog.stall_hours ?? [], tz: index?.catalog.park.timezone ?? "America/Los_Angeles" });
+  if (a.accepting) return null;
+  const why = live.status.get(stall.id)?.reason ?? (stall.is_open ? null : "closed");
+  return (
+    <Notice tone="warn" className="mt-4">
+      {why === "paused"
+        ? `${stall.name} is very busy and has paused new orders for a few minutes${a.label?.includes("back at") ? ` (${a.label.replace("Busy · ", "")})` : ""}. You can look through the menu meanwhile.`
+        : why === "outside_hours"
+          ? `${stall.name} is outside its opening hours${a.label?.startsWith("Opens") ? `. ${a.label}` : ""}. You can still look through the menu.`
+          : `${stall.name} is closed right now, so its dishes cannot be added. You can still look through the menu.`}
+    </Notice>
+  );
+}
+

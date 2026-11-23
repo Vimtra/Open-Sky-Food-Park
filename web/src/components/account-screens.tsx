@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, LogOut, Receipt, Store } from "lucide-react";
+import { ChevronRight, Heart, LogOut, Receipt, RotateCcw, Store } from "lucide-react";
 import { useState } from "react";
 import { backend, formatPhone } from "@/lib/backend";
 import { dayAndTime, isOrderLive, money, plural } from "@/lib/format";
-import { useMyOrders, useSession } from "@/lib/hooks";
+import { useCatalog, useFavorites, useMyOrders, useSession } from "@/lib/hooks";
+import { useOrderAgain } from "@/lib/reorder";
+import { DishCard } from "./cards";
 import type { Order } from "@/lib/types";
 import { StatusPill } from "./order-screen";
 import { CustomerSignIn } from "./sign-in";
@@ -110,6 +112,8 @@ export function AccountScreen() {
         </li>
       </ul>
 
+      <Favourites />
+
       <Button variant="ghost" className="mt-6 -ml-3" onClick={() => backend().signOut("customer")}>
         <LogOut className="size-4.5" aria-hidden />
         Sign out
@@ -146,7 +150,77 @@ function OrderRow({ order }: { order: Order }) {
           )}
         </div>
       </Link>
+      {!live && <OrderAgainButton order={order} />}
     </li>
+  );
+}
+
+function OrderAgainButton({ order }: { order: Order }) {
+  const orderAgain = useOrderAgain();
+  const router = useRouter();
+  const [skipped, setSkipped] = useState<string[] | null>(null);
+  return (
+    <div className="mt-1.5 px-1">
+      <button
+        type="button"
+        className="inline-flex h-9 items-center gap-1.5 text-label font-bold text-ember-700 hover:underline"
+        onClick={() => {
+          const r = orderAgain(order);
+          if (r.added && !r.skipped.length) router.push("/cart");
+          else setSkipped(r.skipped.length ? r.skipped : ["nothing from this order is available right now"]);
+        }}
+      >
+        <RotateCcw className="size-4" aria-hidden /> Order again
+      </button>
+      {skipped && (
+        <p className="text-small text-ink-700" role="status">
+          Not added: {skipped.join("; ")}.{" "}
+          <Link href="/cart" className="font-bold text-ember-700 underline">
+            Go to cart
+          </Link>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Saved dishes and trucks (contract v1.6 favourites). */
+function Favourites() {
+  const fav = useFavorites();
+  const { index } = useCatalog();
+  if (!index) return null;
+  const dishes = fav.list.flatMap((f) => (f.menu_item_id ? [index.itemById.get(f.menu_item_id)] : [])).filter((m) => m !== undefined);
+  const trucks = fav.list.flatMap((f) => (f.stall_id ? [index.stallById.get(f.stall_id)] : [])).filter((s) => s !== undefined && s.is_active);
+  return (
+    <section className="mt-8" aria-labelledby="fav-heading">
+      <h2 id="fav-heading" className="flex items-center gap-2 text-heading">
+        <Heart className="size-5 text-chili-600" aria-hidden /> Favourites
+      </h2>
+      {!dishes.length && !trucks.length ? (
+        <p className="mt-2 text-label text-ink-500">Tap the heart on a dish or a truck to keep it here.</p>
+      ) : (
+        <>
+          {trucks.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {trucks.map((t) => (
+                <li key={t!.id}>
+                  <Link href={`/stall/${t!.slug}`} className="inline-flex h-9 items-center rounded-full border border-line px-3 text-label font-bold hover:bg-surface-1">
+                    {t!.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          {dishes.length > 0 && (
+            <div className="scrollbar-none mt-3 -mx-4 flex gap-4 overflow-x-auto px-4 pb-4">
+              {dishes.map((m) => (
+                <DishCard key={m!.id} item={m!} stall={index.stallById.get(m!.stall_id)!} showStall className="shrink-0" />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

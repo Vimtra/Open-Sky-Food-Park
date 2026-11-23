@@ -4,12 +4,17 @@
 
 import seed from "@/data/catalog.json";
 import { computeBill } from "../format";
+import { checkChoice, indexOptions, priceWithOptions } from "../options";
 import { computeHourRows, computeItemRows, computeSalesRows, parkDate } from "../reports";
+import { closedReason } from "../stall-status";
 import type {
   Catalog,
   Coupon,
+  Favorite,
+  MenuItem,
   Order,
   OrderItem,
+  OrderRating,
   Profile,
   Refund,
   Session,
@@ -29,6 +34,8 @@ const K = {
   coupons: "osfp.demo.coupons",
   stallLogins: "osfp.demo.stall-logins",
   refunds: "osfp.demo.refunds",
+  favorites: "osfp.demo.favorites",
+  ratings: "osfp.demo.ratings",
   session: (area: Area) => `osfp.demo.session.${area}`,
 };
 
@@ -170,17 +177,34 @@ export function createDemoBackend(): Backend {
   const usedCount = (couponId: string, customerId?: string) =>
     loadOrders().filter((o) => o.coupon_code && o.status !== "cancelled" && (o as Order & { coupon_id?: string }).coupon_id === couponId && (!customerId || o.customer_id === customerId)).length;
 
-  const quote = (code: string, customerId: string | null, items: { menu_item_id: string; qty: number }[]) => {
+  // ---- cart lines priced with their options: same rules as _price_lines() in 0006_v16.sql
+  type LineIn = { menu_item_id: string; qty: number; note?: string | null; option_ids?: string[] };
+  const priceLines = (catalog: Catalog, items: LineIn[], strict: boolean) => {
+    if (!items.length) fail("cart_empty");
+    if (items.length > 100) fail("cart_too_big");
+    const options = indexOptions(catalog);
+    return items.map((l) => {
+      const item: MenuItem = catalog.menu_items.find((m) => m.id === l.menu_item_id) ?? fail("item_not_found");
+      const stall = catalog.stalls.find((s) => s.id === item.stall_id) ?? fail("item_not_found");
+      if (!(Number.isInteger(l.qty) && l.qty >= 1 && l.qty <= 50)) fail("bad_quantity");
+      if (strict && !item.is_available) fail("item_unavailable");
+      const groups = options.get(item.id) ?? [];
+      const ids = l.option_ids ?? [];
+      const problem = checkChoice(groups, ids, strict);
+      if (problem) fail(problem);
+      const { unit_price_cents, chosen } = priceWithOptions(item, groups, ids);
+      return { item, stall, qty: l.qty, note: l.note?.trim() || null, unit: unit_price_cents, chosen };
+    });
+  };
+
+  const quote = (code: string, customerId: string | null, items: LineIn[]) => {
     const catalog = loadCatalog();
     if (!catalog.park.coupons_enabled) fail("coupons_disabled");
     const c = loadCoupons().find((x) => x.code === code.trim().toUpperCase()) ?? fail("coupon_not_found");
     if (!c.is_active) fail("coupon_inactive");
     if (c.starts_at && Date.now() < new Date(c.starts_at).getTime()) fail("coupon_not_started");
     if (c.ends_at && Date.now() >= new Date(c.ends_at).getTime()) fail("coupon_expired");
-    const eligible = items.reduce((n, l) => {
-      const m = catalog.menu_items.find((x) => x.id === l.menu_item_id);
-      return m && l.qty >= 1 && l.qty <= 50 && (!c.stall_id || m.stall_id === c.stall_id) ? n + m.price_cents * l.qty : n;
-    }, 0);
+    const eligible = priceLines(catalog, items, false).reduce((n, l) => (!c.stall_id || l.stall.id === c.stall_id ? n + l.unit * l.qty : n), 0);
     if (eligible === 0) fail("coupon_not_applicable");
     if (eligible < c.min_order_cents) fail("coupon_min_order");
     if (c.usage_limit != null && usedCount(c.id) >= c.usage_limit) fail("coupon_used_up");
@@ -304,18 +328,25 @@ export function createDemoBackend(): Backend {
         if (!catalog.park.table_service_enabled) fail("table_service_unavailable");
         if (!table) fail("table_required");
       } else table = null;
-      if (!input.items.length) fail("cart_empty");
+      let pickupAt: string | null = null;
+      if (input.pickup_at) {
+        if (!catalog.park.scheduled_orders_enabled) fail("scheduling_unavailable");
+        const t = new Date(input.pickup_at);
+        if (Number.isNaN(t.getTime())) fail("bad_pickup_time");
+        const tz = catalog.park.timezone;
+        if (t.getTime() < Date.now() + 10 * 60000 || t.getTime() > Date.now() + 12 * 3600000 || parkDate(t, tz) !== parkDate(new Date(), tz)) fail("bad_pickup_time");
+        pickupAt = t.toISOString();
+      }
 
-      const lines = input.items.map((l) => {
-        const item = catalog.menu_items.find((m) => m.id === l.menu_item_id) ?? fail("item_not_found");
-        const stall = catalog.stalls.find((s) => s.id === item.stall_id) ?? fail("item_not_found");
-        if (!(Number.isInteger(l.qty) && l.qty >= 1 && l.qty <= 50)) fail("bad_quantity");
-        if (!item.is_available) fail("item_unavailable");
-        if (!stall.is_open || !stall.is_active) fail("stall_closed");
-        return { item, stall, qty: l.qty, note: l.note?.trim() || null };
-      });
+      const lines = priceLines(catalog, input.items, true);
+      for (const stall of new Set(lines.map((l) => l.stall))) {
+        const reason = closedReason(stall, catalog.stall_hours ?? [], pickupAt ? new Date(pickupAt) : new Date(), catalog.park.timezone);
+        if (reason === "paused") fail("stall_paused");
+        if (reason === "outside_hours") fail("outside_hours");
+        if (reason) fail("stall_closed");
+      }
 
-      const itemTotal = lines.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
+      const itemTotal = lines.reduce((sum, l) => sum + l.unit * l.qty, 0);
       const applied = input.coupon_code?.trim() ? quote(input.coupon_code, session.user_id, input.items) : null;
       const bill = computeBill(itemTotal, catalog.park, Math.max(0, input.tip_cents || 0), applied?.discount ?? 0);
       const online = input.payment_method === "online";
@@ -332,7 +363,7 @@ export function createDemoBackend(): Backend {
       const scope = applied?.coupon.stall_id ?? null;
       const stallOrders: StallOrder[] = stallIds.map((stallId, stallNo) => {
         const mine = lines.filter((l) => l.stall.id === stallId);
-        const subtotal = mine.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
+        const subtotal = mine.reduce((sum, l) => sum + l.unit * l.qty, 0);
         // Same splits as place_order: by share of eligible dishes; the last stall takes the remainder.
         const last = stallNo === stallIds.length - 1;
         const discount =
@@ -359,9 +390,10 @@ export function createDemoBackend(): Backend {
           menu_item_id: l.item.id,
           name: l.item.name,
           diet: l.item.diet,
-          unit_price_cents: l.item.price_cents,
+          unit_price_cents: l.unit,
           qty: l.qty,
           note: l.note,
+          options: l.chosen,
         }));
         return {
           id,
@@ -398,6 +430,7 @@ export function createDemoBackend(): Backend {
         fulfilment: input.fulfilment,
         table_no: table,
         note: input.note?.trim() || null,
+        pickup_at: pickupAt,
         ...bill,
         coupon_code: applied?.coupon.code ?? null,
         ...(applied ? { coupon_id: applied.coupon.id } : {}),
@@ -546,6 +579,125 @@ export function createDemoBackend(): Backend {
       await sleep();
       requireAdmin();
       return loadOrders();
+    },
+
+    // ---------------------------------------------------------------- v1.6: favourites, ratings, live truck info
+    async listFavorites() {
+      await sleep(60);
+      const session = loadSession("customer");
+      if (!session) return [];
+      return read<Favorite[]>(K.favorites, []).filter((f) => f.user_id === session.user_id);
+    },
+
+    async setFavorite(target, on) {
+      await sleep(80);
+      const session = loadSession("customer") ?? fail("sign_in_required");
+      const all = read<Favorite[]>(K.favorites, []);
+      const same = (f: Favorite) =>
+        f.user_id === session.user_id && (target.menu_item_id ? f.menu_item_id === target.menu_item_id : f.stall_id === target.stall_id);
+      const rest = all.filter((f) => !same(f));
+      if (on) rest.unshift({ user_id: session.user_id, menu_item_id: target.menu_item_id ?? null, stall_id: target.menu_item_id ? null : (target.stall_id ?? null), created_at: now() });
+      write(K.favorites, rest);
+    },
+
+    async listMyRatings(orderId) {
+      await sleep(60);
+      const session = loadSession("customer");
+      return read<OrderRating[]>(K.ratings, []).filter((r) => r.order_id === orderId && r.customer_id === session?.user_id);
+    },
+
+    async rateStallOrder(stallOrderId, stars, comment) {
+      await sleep(200);
+      const session = loadSession("customer") ?? fail("sign_in_required");
+      const order = loadOrders().find((o) => o.customer_id === session.user_id && o.stall_orders.some((s) => s.id === stallOrderId)) ?? fail("not_found");
+      const so = order.stall_orders.find((s) => s.id === stallOrderId)!;
+      if (so.status !== "completed") fail("not_completed");
+      const text = comment?.trim() || null;
+      if (!Number.isInteger(stars) || stars < 1 || stars > 5 || (text?.length ?? 0) > 500) fail("bad_rating");
+      const all = read<OrderRating[]>(K.ratings, []);
+      const existing = all.find((r) => r.stall_order_id === stallOrderId);
+      if (existing) Object.assign(existing, { stars, comment: text, updated_at: now() });
+      else
+        all.unshift({ id: uid(), stall_order_id: so.id, order_id: order.id, stall_id: so.stall_id, customer_id: session.user_id, stars, comment: text, created_at: now(), updated_at: now() });
+      write(K.ratings, all);
+      emit("orders");
+    },
+
+    async getRatingSummary() {
+      await sleep(60);
+      const staff = loadSession("staff");
+      const open = loadCatalog().park.ratings_public;
+      const groups = new Map<string, number[]>();
+      for (const r of read<OrderRating[]>(K.ratings, [])) {
+        if (!open && !(staff && (staff.profile.role === "admin" || staff.staff_stall_ids.includes(r.stall_id)))) continue;
+        groups.set(r.stall_id, [...(groups.get(r.stall_id) ?? []), r.stars]);
+      }
+      return [...groups.entries()].map(([stall_id, s]) => ({ stall_id, avg_stars: Math.round((s.reduce((a, b) => a + b, 0) / s.length) * 10) / 10, ratings: s.length }));
+    },
+
+    async getStallStatus() {
+      await sleep(40);
+      const c = loadCatalog();
+      const at = new Date();
+      return c.stalls
+        .filter((s) => s.is_active)
+        .map((s) => {
+          const reason = closedReason(s, c.stall_hours ?? [], at, c.park.timezone);
+          return { stall_id: s.id, accepting: !reason, reason, paused_until: s.paused_until && new Date(s.paused_until) > at ? s.paused_until : null };
+        });
+    },
+
+    async getWaitTimes() {
+      await sleep(40);
+      const since = Date.now() - 3 * 3600000;
+      const tickets = loadOrders().flatMap((o) => o.stall_orders);
+      return loadCatalog()
+        .stalls.filter((s) => s.is_active)
+        .map((s) => {
+          const mine = tickets.filter((t) => t.stall_id === s.id);
+          const done = mine.filter((t) => t.ready_at && new Date(t.ready_at).getTime() > since && (t.accepted_at ?? t.placed_at));
+          const mins = done.map((t) => (new Date(t.ready_at!).getTime() - new Date((t.accepted_at ?? t.placed_at)!).getTime()) / 60000);
+          return {
+            stall_id: s.id,
+            open_tickets: mine.filter((t) => t.status === "placed" || t.status === "preparing").length,
+            typical_prep_mins: mins.length >= 3 ? Math.max(1, Math.round(mins.reduce((a, b) => a + b, 0) / mins.length)) : null,
+          };
+        });
+    },
+
+    async popularItems(limit = 8) {
+      await sleep(40);
+      const since = Date.now() - 30 * 86400000;
+      const counts = new Map<string, Set<string>>();
+      for (const o of loadOrders()) {
+        for (const so of o.stall_orders) {
+          if (so.status === "pending" || so.status === "cancelled" || new Date(so.created_at).getTime() < since) continue;
+          for (const i of so.order_items) if (i.menu_item_id) counts.set(i.menu_item_id, (counts.get(i.menu_item_id) ?? new Set()).add(o.id));
+        }
+      }
+      return [...counts.entries()]
+        .map(([menu_item_id, ids]) => ({ menu_item_id, orders: ids.size }))
+        .filter((r) => r.orders >= 3)
+        .sort((a, b) => b.orders - a.orders || a.menu_item_id.localeCompare(b.menu_item_id))
+        .slice(0, Math.min(Math.max(limit, 1), 20));
+    },
+
+    async saveItemOptions(itemId, groups) {
+      await sleep(150);
+      const item = loadCatalog().menu_items.find((m) => m.id === itemId) ?? fail("not_found");
+      requireStaff(item.stall_id);
+      editCatalog((c) => {
+        const oldGroups = (c.menu_option_groups ?? []).filter((g) => g.menu_item_id === itemId).map((g) => g.id);
+        c.menu_option_groups = (c.menu_option_groups ?? []).filter((g) => g.menu_item_id !== itemId);
+        c.menu_options = (c.menu_options ?? []).filter((o) => !oldGroups.includes(o.group_id));
+        groups.forEach((g, gi) => {
+          const gid = g.id ?? uid();
+          c.menu_option_groups!.push({ id: gid, menu_item_id: itemId, name: g.name, min_select: g.min_select, max_select: g.max_select, sort_order: gi });
+          g.options.forEach((o, oi) =>
+            c.menu_options!.push({ id: o.id ?? uid(), group_id: gid, name: o.name, price_cents: o.price_cents, is_default: o.is_default, is_available: o.is_available, sort_order: oi }),
+          );
+        });
+      });
     },
 
     async searchOrders(filter) {
@@ -876,6 +1028,8 @@ export function createDemoBackend(): Backend {
       localStorage.removeItem(K.coupons);
       localStorage.removeItem(K.stallLogins);
       localStorage.removeItem(K.refunds);
+      localStorage.removeItem(K.favorites);
+      localStorage.removeItem(K.ratings);
       emit("catalog");
       emit("orders");
       emit("support");

@@ -10,6 +10,7 @@ import { useSession } from "@/lib/hooks";
 import type { Banner, Diet, MenuCategory, MenuItem, Park, Stall, SupportStatus } from "@/lib/types";
 import { supportTopics } from "./support-shared";
 import { CouponsTab } from "./admin-coupons";
+import { OptionsEditor } from "./admin-options";
 import { OrdersTab } from "./admin-orders";
 import { ReportsTab } from "./admin-reports";
 import { blankToNull, Check, ConfirmDelete, Select, Text, toCents, toDollars, type Run } from "./admin-kit";
@@ -124,6 +125,11 @@ function ItemForm({ item, category, index, run, onClose }: { item: MenuItem | nu
           </span>
         )}
       </div>
+      {item ? (
+        <OptionsEditor key={JSON.stringify(index.optionsByItem.get(item.id) ?? [])} item={item} groups={index.optionsByItem.get(item.id) ?? []} run={run} />
+      ) : (
+        <p className="mt-4 border-t border-line pt-3 text-small text-ink-500">Add the dish first; then you can give it choices like size, spice level or add-ons.</p>
+      )}
     </div>
   );
 }
@@ -653,6 +659,8 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
   const [ordering, setOrdering] = useState(park.ordering_enabled);
   const [tables, setTables] = useState(park.table_service_enabled);
   const [coupons, setCoupons] = useState(park.coupons_enabled);
+  const [later, setLater] = useState(park.scheduled_orders_enabled ?? false);
+  const [ratingsPublic, setRatingsPublic] = useState(park.ratings_public ?? false);
   const [touched, setTouched] = useState(false);
   const taxNum = Number(tax);
   const taxOk = tax.trim() !== "" && Number.isFinite(taxNum) && taxNum >= 0 && taxNum <= 30;
@@ -675,6 +683,8 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
           ordering_enabled: ordering,
           table_service_enabled: tables,
           coupons_enabled: coupons,
+          scheduled_orders_enabled: later,
+          ratings_public: ratingsPublic,
         }),
       "Settings saved. Customers see the change on their next screen.",
     );
@@ -715,6 +725,9 @@ function SettingsTab({ park, run }: { park: Park; run: Run }) {
         <Check label="Take online orders" checked={ordering} onChange={setOrdering} />
         <Check label="Offer “bring it to my table”" checked={tables} onChange={setTables} />
         <Check label="Accept coupon codes at checkout" checked={coupons} onChange={setCoupons} />
+        <Check label="Let customers order for later today (pick a pickup time)" checked={later} onChange={setLater} />
+        <Check label="Show trucks' star ratings to customers" checked={ratingsPublic} onChange={setRatingsPublic} />
+        <p className="mt-1 text-small text-ink-500">Ratings come only from customers who picked up their food. While this is off, only you and each truck see them.</p>
       </div>
       <div className="mt-4">
         <Button onClick={save}>Save settings</Button>

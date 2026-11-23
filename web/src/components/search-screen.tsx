@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronRight, Clock, Search, TrendingUp, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
+import { backend } from "@/lib/backend";
+import { useRecentSearches } from "@/lib/recent-searches";
 import { imageSrc } from "@/lib/format";
 import { useCatalog } from "@/lib/hooks";
 import type { MenuItem, Stall } from "@/lib/types";
-import { DishCard, OpenStatus, TruckCard } from "./cards";
+import { DishCard, dishHref, OpenStatus, TruckCard } from "./cards";
 import { Chip, Container, Notice } from "./ui";
 
 export function SearchScreen() {
@@ -51,6 +54,17 @@ export function SearchScreen() {
     }
     return groups;
   }, [index, q, craving]);
+
+  // Remember a search once the customer stops typing and it found something.
+  const recent = useRecentSearches();
+  const hits = results?.reduce((n, g) => n + g.items.length, 0) ?? 0;
+  const { remember } = recent;
+  useEffect(() => {
+    if (!q || hits === 0) return;
+    const t = setTimeout(() => remember(q), 1500);
+    return () => clearTimeout(t);
+  }, [q, hits, remember]);
+  const { data: popular } = useSWR(index ? "popular" : null, () => backend().popularItems(8), { revalidateOnFocus: false });
 
   const cravings = index ? [...index.catalog.cravings].sort((a, b) => a.sort_order - b.sort_order) : [];
   const cravingName = cravings.find((c) => c.slug === craving)?.name;
@@ -105,6 +119,55 @@ export function SearchScreen() {
       )}
 
       <div className="mt-8" aria-live="polite">
+        {!results && index && recent.list.length > 0 && (
+          <section aria-labelledby="recent-heading" className="mx-auto mb-8 max-w-2xl">
+            <div className="flex items-center justify-between">
+              <h2 id="recent-heading" className="flex items-center gap-2 text-subheading font-extrabold">
+                <Clock className="size-4.5 text-ink-500" aria-hidden /> Recent searches
+              </h2>
+              <button type="button" onClick={recent.clear} className="text-label font-bold text-ember-700 hover:underline">
+                Clear
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {recent.list.map((r) => (
+                <Chip
+                  key={r}
+                  onClick={() => {
+                    setQuery(r);
+                    setUrl({ q: r });
+                  }}
+                >
+                  {r}
+                </Chip>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!results && index && (popular ?? []).length > 0 && (
+          <section aria-labelledby="popular-heading" className="mx-auto mb-8 max-w-2xl">
+            <h2 id="popular-heading" className="flex items-center gap-2 text-subheading font-extrabold">
+              <TrendingUp className="size-4.5 text-ember-600" aria-hidden /> Popular at the park
+            </h2>
+            <p className="mt-0.5 text-small text-ink-500">Most ordered in the last 30 days.</p>
+            <ol className="mt-3 flex flex-wrap gap-2">
+              {popular!.flatMap((p) => {
+                const item = index.itemById.get(p.menu_item_id);
+                const stall = item && index.stallById.get(item.stall_id);
+                if (!item || !stall?.is_active) return [];
+                return [
+                  <li key={item.id}>
+                    <Link href={dishHref(stall, item)} className="inline-flex h-9 items-center rounded-full border border-line bg-white px-3.5 text-label font-semibold hover:bg-surface-1">
+                      {item.name}
+                    </Link>
+                  </li>,
+                ];
+              })}
+            </ol>
+          </section>
+        )}
+
         {!results && index && (
           <section aria-labelledby="browse-heading">
             <h2 id="browse-heading" className="text-heading md:text-title">
