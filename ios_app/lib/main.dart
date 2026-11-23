@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/order_screen.dart';
 import 'screens/search_screen.dart';
 import 'state/app_state.dart';
+import 'state/ready_alerts.dart';
 import 'theme/tokens.dart';
 import 'ui/kit.dart';
 
@@ -14,8 +15,18 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final state = await AppState.load();
+  // "Food is ready" alerts with the park's bell. Tapping one opens that order.
+  state.onTokenReady = ReadyAlerts.showReady;
+  ReadyAlerts.onOpenOrder = openOrderFromAlert;
+  final launchedFor = await ReadyAlerts.init();
   runApp(AppScope(state: state, child: const OpenSkyApp()));
+  if (launchedFor != null) WidgetsBinding.instance.addPostFrameCallback((_) => openOrderFromAlert(launchedFor));
 }
+
+final navigatorKey = GlobalKey<NavigatorState>();
+
+/// A tapped alert opens its order on top of the app.
+void openOrderFromAlert(String orderId) => navigatorKey.currentState?.push(CupertinoPageRoute<void>(builder: (_) => OrderScreen(orderId: orderId)));
 
 class OpenSkyApp extends StatelessWidget {
   const OpenSkyApp({super.key});
@@ -23,6 +34,7 @@ class OpenSkyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => CupertinoApp(
         title: 'Open Sky',
+        navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: CupertinoThemeData(
           brightness: Brightness.light,

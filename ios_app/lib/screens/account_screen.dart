@@ -2,6 +2,9 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 
 import '../data/models.dart';
 import '../state/app_state.dart';
+import '../state/ready_alerts.dart';
+import 'dish_sheet.dart';
+import '../data/catalog.dart';
 import '../theme/tokens.dart';
 import '../ui/kit.dart';
 
@@ -73,7 +76,65 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ]),
             ],
+            if (a != null) ...[
+              const SizedBox(height: 28),
+              CupertinoListSection.insetGrouped(
+                margin: EdgeInsets.zero,
+                header: Text('FAVOURITES', style: OsText.caption.copyWith(color: OsColors.ink500)),
+                children: [
+                  if (state.favouriteItems.isEmpty && state.favouriteStalls.isEmpty)
+                    CupertinoListTile(
+                      leading: const Icon(CupertinoIcons.heart, color: OsColors.ink500),
+                      title: Text('Nothing saved yet', style: OsText.label),
+                      subtitle: Text('Tap the heart on a dish to keep it here.', style: OsText.small),
+                    ),
+                  for (final id in state.favouriteStalls)
+                    if (state.catalog.stallById[id] case final st?)
+                      CupertinoListTile(
+                        leading: ClipOval(child: FoodImage(st.logoUrl, width: 32, height: 32)),
+                        title: Text(st.name, style: OsText.label),
+                        subtitle: OpenStatus(st.isOpen, label: st.statusLabel),
+                      ),
+                  for (final id in state.favouriteItems)
+                    if (state.catalog.itemById[id] case final m?)
+                      CupertinoListTile(
+                        leading: ClipRRect(borderRadius: BorderRadius.circular(8), child: FoodImage(m.imageUrl, width: 40, height: 40)),
+                        title: Text(m.name, style: OsText.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text('${state.catalog.stallById[m.stallId]?.name ?? ''} · ${money(m.priceCents)}', style: OsText.small),
+                        trailing: const CupertinoListTileChevron(),
+                        onTap: () => showDish(context, m),
+                      ),
+                ],
+              ),
+            ],
             const SizedBox(height: 28),
+            CupertinoListSection.insetGrouped(
+              margin: EdgeInsets.zero,
+              header: Text('NOTIFICATIONS', style: OsText.caption.copyWith(color: OsColors.ink500)),
+              children: [
+                CupertinoListTile(
+                  leading: const Icon(CupertinoIcons.bell_fill, color: OsColors.ember600),
+                  title: Text('Food is ready alerts', style: OsText.label),
+                  subtitle: Text('The park bell when a token turns Ready', style: OsText.small),
+                  trailing: CupertinoSwitch(
+                    value: state.readyAlerts,
+                    activeTrackColor: OsColors.leaf600,
+                    onChanged: (v) async {
+                      AppScope.read(context).setReadyAlerts(v);
+                      if (v) await ReadyAlerts.askPermission();
+                    },
+                  ),
+                ),
+                CupertinoListTile(
+                  leading: const Icon(CupertinoIcons.speaker_2_fill, color: OsColors.ink700),
+                  title: Text('Hear the alert', style: OsText.label),
+                  onTap: () async {
+                    if (await ReadyAlerts.askPermission()) await ReadyAlerts.showSample();
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             CupertinoListSection.insetGrouped(
               margin: EdgeInsets.zero,
               header: Text('THE PARK', style: OsText.caption.copyWith(color: OsColors.ink500)),

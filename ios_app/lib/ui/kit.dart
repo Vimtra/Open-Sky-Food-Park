@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../data/catalog.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
+import '../screens/dish_sheet.dart';
 import '../theme/tokens.dart';
 
 /// Scales to 0.96 while pressed, with a light haptic tap: the iOS feel for every tappable card.
@@ -148,6 +149,8 @@ class AddButton extends StatelessWidget {
     final stall = state.catalog.stallById[item.stallId];
     final qty = state.qtyOf(item.id);
     final open = stall?.isOpen ?? false;
+    // Dishes with options (size, spice, add-ons) open the dish sheet to choose them.
+    final custom = state.catalog.optionsOf(item.id).isNotEmpty;
     final box = BoxDecoration(
       color: OsColors.surface0,
       borderRadius: BorderRadius.circular(OsRadius.md - 2),
@@ -162,15 +165,29 @@ class AddButton extends StatelessWidget {
         height: height,
         decoration: box.copyWith(boxShadow: const []),
         alignment: Alignment.center,
-        child: Text(item.isAvailable ? 'Closed' : 'Sold out', style: OsText.small.copyWith(fontWeight: FontWeight.w700)),
+        child: Text(
+          !item.isAvailable ? 'Sold out' : (stall?.closedReason() == ClosedReason.paused ? 'Busy' : 'Closed'),
+          style: OsText.small.copyWith(fontWeight: FontWeight.w700),
+        ),
       );
     }
 
     if (qty == 0) {
       return Press(
-        semanticLabel: 'Add ${item.name}',
-        onTap: () => AppScope.read(context).add(item.id),
-        child: Container(width: width, height: height, decoration: box, alignment: Alignment.center, child: Text('ADD', style: label)),
+        semanticLabel: custom ? 'Choose options for ${item.name}' : 'Add ${item.name}',
+        onTap: () => custom ? showDish(context, item) : AppScope.read(context).add(item.id),
+        child: Container(
+          width: width,
+          height: height,
+          decoration: box,
+          alignment: Alignment.center,
+          child: custom
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('ADD', style: label.copyWith(height: 1.1)),
+                  Text('options', style: OsText.weight(OsText.small, 600).copyWith(fontSize: 10, height: 1.1)),
+                ])
+              : Text('ADD', style: label),
+        ),
       );
     }
 
@@ -195,7 +212,12 @@ class AddButton extends StatelessWidget {
       decoration: box,
       child: Row(
         children: [
-          step(CupertinoIcons.minus, () => AppScope.read(context).decrement(item.id), 'Remove one ${item.name}'),
+          step(CupertinoIcons.minus, () {
+            final s = AppScope.read(context);
+            // With options, − takes one off the most recently added line of this dish.
+            final key = custom ? s.lastKeyOf(item.id) : item.id;
+            if (key != null) s.decrement(key);
+          }, 'Remove one ${item.name}'),
           Expanded(
             child: AnimatedSwitcher(
               duration: OsMotion.press,
@@ -203,7 +225,7 @@ class AddButton extends StatelessWidget {
               child: Text('$qty', key: ValueKey(qty), textAlign: TextAlign.center, style: label),
             ),
           ),
-          step(CupertinoIcons.plus, qty >= maxQty ? null : () => AppScope.read(context).add(item.id), 'Add one more ${item.name}'),
+          step(CupertinoIcons.plus, qty >= maxQty ? null : () => custom ? showDish(context, item) : AppScope.read(context).add(item.id), 'Add one more ${item.name}'),
         ],
       ),
     );
@@ -212,9 +234,11 @@ class AddButton extends StatelessWidget {
 
 /// Green dot + "Open now", or grey "Closed".
 class OpenStatus extends StatelessWidget {
-  const OpenStatus(this.open, {super.key, this.onDark = false});
+  const OpenStatus(this.open, {super.key, this.onDark = false, this.label});
   final bool open;
   final bool onDark;
+  /// When closed: "Busy · back at 7:40 PM", "Opens 5:00 PM"…
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +248,7 @@ class OpenStatus extends StatelessWidget {
       children: [
         Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(open ? 'Open now' : 'Closed', style: OsText.weight(OsText.small, 700).copyWith(color: color)),
+        Flexible(child: Text(open ? 'Open now' : (label ?? 'Closed'), overflow: TextOverflow.ellipsis, style: OsText.weight(OsText.small, 700).copyWith(color: color))),
       ],
     );
   }

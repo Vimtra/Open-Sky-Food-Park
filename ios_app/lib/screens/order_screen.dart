@@ -1,7 +1,9 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../data/catalog.dart';
 import '../data/models.dart';
+import '../data/options.dart';
 import '../state/app_state.dart';
 import '../theme/tokens.dart';
 import '../ui/kit.dart';
@@ -59,9 +61,19 @@ class OrderScreen extends StatelessWidget {
             sliver: SliverList.list(children: [
               Text(
                 '${order.orderNo} · ${order.fulfilment == Fulfilment.table ? 'Table ${order.tableNo}' : 'Pickup'} · '
-                '${order.paymentMethod == PaymentMethod.online ? 'Paid' : 'Pay at the truck'}',
+                '${order.paymentMethod == PaymentMethod.online ? 'Paid' : 'Pay at the truck'}'
+                '${order.pickupAt != null ? ' · For ${parkTime(order.pickupAt!)}' : ''}',
                 style: OsText.label.copyWith(color: OsColors.ink700, fontWeight: FontWeight.w500),
               ),
+              if (order.refundedCents > 0) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: OsColors.leaf50, borderRadius: BorderRadius.circular(OsRadius.lg)),
+                  child: Text('Refund of ${money(order.refundedCents)} on its way to your card or wallet. It usually shows within 5–10 business days.',
+                      style: OsText.label.copyWith(color: OsColors.leaf700)),
+                ),
+              ],
               if (justPlaced && order.status == OrderStatus.active) ...[
                 const SizedBox(height: 14),
                 Container(
@@ -85,6 +97,7 @@ class OrderScreen extends StatelessWidget {
                 child: Column(children: [
                   for (final (l, c) in [
                     ('Item total', order.itemTotalCents),
+                    if (order.discountCents > 0) ('Coupon ${order.couponCode ?? ''}', -order.discountCents),
                     if (order.taxCents > 0) ('Sales tax', order.taxCents),
                     if (order.serviceFeeCents > 0) ('Service fee', order.serviceFeeCents),
                   ])
@@ -92,7 +105,7 @@ class OrderScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 3),
                       child: Row(children: [
                         Expanded(child: Text(l, style: OsText.label.copyWith(color: OsColors.ink700, fontWeight: FontWeight.w500))),
-                        Text(money(c), style: OsText.label.copyWith(fontFeatures: OsText.tabular)),
+                        Text(c < 0 ? '−${money(-c)}' : money(c), style: OsText.label.copyWith(fontFeatures: OsText.tabular, color: c < 0 ? OsColors.leaf700 : null)),
                       ]),
                     ),
                   const SizedBox(height: 6),
@@ -102,6 +115,25 @@ class OrderScreen extends StatelessWidget {
                   ]),
                 ]),
               ),
+              if (order.stallOrders.any((s) => s.status == TicketStatus.completed || s.status == TicketStatus.cancelled) || order.status != OrderStatus.active) ...[
+                const SizedBox(height: 16),
+                PrimaryButton(
+                  label: 'Order again',
+                  trailing: const Icon(CupertinoIcons.arrow_counterclockwise, size: 18, color: OsColors.night900),
+                  onTap: () {
+                    final r = AppScope.read(context).orderAgain(order);
+                    HapticFeedback.mediumImpact();
+                    showCupertinoDialog<void>(
+                      context: context,
+                      builder: (d) => CupertinoAlertDialog(
+                        title: Text(r.added > 0 ? '${plural(r.added, 'item')} back in your cart' : 'Nothing could go back in'),
+                        content: r.skipped.isEmpty ? null : Text('Not added: ${r.skipped.join('; ')}.'),
+                        actions: [CupertinoDialogAction(isDefaultAction: true, onPressed: () => Navigator.of(d).pop(), child: const Text('OK'))],
+                      ),
+                    );
+                  },
+                ),
+              ],
               if (state.canCancel(order)) ...[
                 const SizedBox(height: 16),
                 CupertinoButton(
@@ -240,17 +272,32 @@ class _TokenCard extends StatelessWidget {
             ]),
           ],
           const SizedBox(height: 14),
+          if (so.status == TicketStatus.preparing && so.readyBy != null) ...[
+            Row(children: [
+              const Icon(CupertinoIcons.timer, size: 16, color: OsColors.ink900),
+              const SizedBox(width: 6),
+              Text('Ready by about ${parkTime(so.readyBy!)}', style: OsText.weight(OsText.label, 800)),
+            ]),
+            const SizedBox(height: 10),
+          ],
           for (final it in so.items)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: Row(children: [
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 SizedBox(width: 28, child: Text('${it.qty}×', style: OsText.weight(OsText.label, 800).copyWith(fontFeatures: OsText.tabular))),
-                DietMark(it.diet, size: 13),
+                Padding(padding: const EdgeInsets.only(top: 3), child: DietMark(it.diet, size: 13)),
                 if (it.diet != null) const SizedBox(width: 6),
-                Expanded(child: Text(it.name, style: OsText.label.copyWith(color: OsColors.ink700, fontWeight: FontWeight.w500))),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(it.name, style: OsText.label.copyWith(color: OsColors.ink700, fontWeight: FontWeight.w500)),
+                    if (it.options.isNotEmpty) Text(optionsText(it.options, money), style: OsText.small),
+                    if ((it.note ?? '').isNotEmpty) Text('“${it.note}”', style: OsText.small),
+                  ]),
+                ),
                 Text(money(it.unitPriceCents * it.qty), style: OsText.label.copyWith(color: OsColors.ink700, fontFeatures: OsText.tabular)),
               ]),
             ),
+          if (so.status == TicketStatus.completed) _RateTruck(order: order, so: so),
         ],
       ),
     );
@@ -327,3 +374,127 @@ class OrdersScreen extends StatelessWidget {
     );
   }
 }
+
+/// "How was (truck)?": stars and a comment after pickup. Rating again replaces it.
+class _RateTruck extends StatefulWidget {
+  const _RateTruck({required this.order, required this.so});
+  final Order order;
+  final StallOrder so;
+
+  @override
+  State<_RateTruck> createState() => _RateTruckState();
+}
+
+class _RateTruckState extends State<_RateTruck> {
+  static const _words = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Loved it'];
+  late int _stars;
+  late final TextEditingController _comment;
+  bool _editing = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = AppScope.read(context).ratingOf(widget.so);
+    _stars = existing?.stars ?? 0;
+    _comment = TextEditingController(text: existing?.comment ?? '');
+    _editing = existing == null;
+  }
+
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final existing = AppScope.of(context).ratingOf(widget.so);
+    Widget stars(int value, {double size = 30, ValueChanged<int>? onTap}) => Row(mainAxisSize: MainAxisSize.min, children: [
+          for (var n = 1; n <= 5; n++)
+            Semantics(
+              button: onTap != null,
+              label: '$n star${n > 1 ? 's' : ''}: ${_words[n]}',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onTap == null
+                    ? null
+                    : () {
+                        HapticFeedback.selectionClick();
+                        onTap(n);
+                      },
+                child: Padding(
+                  padding: EdgeInsets.all(onTap == null ? 1 : 4),
+                  child: Icon(n <= value ? CupertinoIcons.star_fill : CupertinoIcons.star, size: size, color: n <= value ? OsColors.ember500 : OsColors.ink300),
+                ),
+              ),
+            ),
+        ]);
+
+    if (existing != null && !_editing) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Row(children: [
+          Expanded(
+            child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 8, runSpacing: 2, children: [
+              Text('Your rating', style: OsText.weight(OsText.label, 800)),
+              stars(existing.stars, size: 15),
+              if (existing.comment != null) Text('“${existing.comment}”', maxLines: 2, overflow: TextOverflow.ellipsis, style: OsText.small),
+            ]),
+          ),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(44, 36),
+            onPressed: () => setState(() => _editing = true),
+            child: Text('Change', style: OsText.weight(OsText.small, 800).copyWith(color: OsColors.ember700)),
+          ),
+        ]),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('How was ${widget.so.stallName}?', style: OsText.weight(OsText.label, 800)),
+        const SizedBox(height: 4),
+        Row(children: [
+          stars(_stars, onTap: (n) => setState(() => _stars = n)),
+          const SizedBox(width: 8),
+          Text(_words[_stars], style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.ink700)),
+        ]),
+        if (_stars > 0) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: CupertinoTextField(
+                controller: _comment,
+                placeholder: 'Anything to tell the truck? (optional)',
+                maxLength: 500,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                style: OsText.label,
+                decoration: BoxDecoration(color: OsColors.surface1, borderRadius: BorderRadius.circular(OsRadius.md)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              minimumSize: const Size(44, 42),
+              color: OsColors.night900,
+              borderRadius: BorderRadius.circular(OsRadius.md),
+              onPressed: () {
+                final err = AppScope.read(context).rate(widget.order, widget.so, _stars, _comment.text.trim().isEmpty ? null : _comment.text.trim());
+                setState(() {
+                  _error = err == null ? null : friendlyError(err);
+                  if (err == null) _editing = false;
+                });
+              },
+              child: Text(existing == null ? 'Send' : 'Update', style: OsText.weight(OsText.label, 800).copyWith(color: OsColors.surface0)),
+            ),
+          ]),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_error!, style: OsText.weight(OsText.small, 700).copyWith(color: OsColors.chili600))),
+      ]),
+    );
+  }
+}
+

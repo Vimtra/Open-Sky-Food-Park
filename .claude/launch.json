@@ -4,6 +4,18 @@
     {
       "name": "web",
       "url": "http://localhost:3001"
+    },
+    {
+      "name": "ios-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "3100",
+        "--directory",
+        "ios_app/build/web"
+      ],
+      "port": 3100
     }
   ]
 }

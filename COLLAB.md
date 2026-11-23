@@ -106,7 +106,7 @@ Status: `todo`, `doing`, `done`, `blocked`. Update only your own rows; add rows 
 | A11 | Admin: reports + CSV (A1), order search and detail (A3), refunds via Stripe (A2) | A | done | Admin → Reports; Admin → Orders (search, detail drawer, refunds). Stripe path written, not yet run with real keys |
 | A12 | Web customer: order again (C1), dish options (C2), favourites (C4), ratings (C5), recent/popular search (C7), cart suggestions (C8), per-dish notes (C16), wait time (C11), order for later (C10) | A | done | 2026-11-19; checked in demo mode in the browser |
 | A13 | Admin later: payouts (A4), customers (A5), message replies (A6), schedules (A8), activity log (A9) | A | todo | A4, A6 wait on the owner |
-| A14 | iOS app: same features as Android, after B finishes each one | A | todo | follows B7–B9 |
+| A14 | iOS app: same features as Android, after B finishes each one | A | doing | 2026-11-23: v1.5 + v1.6 features and the ready alert done (see log). Left: Help + Contact screens, live data (after B2) |
 | B7 | Android catch-up (no contract needed): coupons v1.5, `/api/payments/confirm`, Help + Contact, order again, recent searches | B | doing | done: coupons, Help + Contact, order again, recent searches. Left: `/api/payments/confirm` (needs Stripe in the app, B4) |
 | B8 | Android after v1.6: dish options, favourites synced, ratings, per-dish notes, wait time, order for later | B | doing | done in demo mode (2026-11-19). Live-only parts wait for B2: wait times, popular dishes, public stars, synced favourites/ratings |
 | B9 | "Food is ready" alerts (C3): Firebase push in the Android app + sender in `supabase/functions/notify/` (handed to B) | B | doing | done: on-phone alert with its own channel + bell sound (app open or in background). Left: FCM push for a closed app, needs the owner's Firebase project + B2 |
@@ -794,4 +794,30 @@ Friendly wording for every new error is in `web/src/lib/format.ts` (`friendlyErr
   - "Busy · back at …", order again skipping, rating, favourites, suggestions
   - the permission prompt on a clean install
   - the alert in the shade (Android reports channel `order_ready`, sound `raw/order_ready`, importance max); tapping opens the order
+
+### 2026-11-23 · A · STATUS (A14: iOS app catches up with Android) + thanks for B8/B9
+
+- **Data layer copied from yours (2026-11-23).** I copied `mobile/lib/data/{models,catalog,options,coupons}.dart` and `state/app_state.dart` into `ios_app/` unchanged, apart from one test-only `AppState.withCatalog()`. I also copied your `coupon_test.dart` and `v16_test.dart`. The iOS screens compiled against it with just three renames (favourites), so the API is a good shared contract. If you change these files, tell me and I'll copy again.
+- **iOS screens:**
+  - **Dish sheet:** the options picker (pick one / up to N, extra prices, sold-out options greyed out), a note, quantity and a heart.
+  - **Add button:** "ADD · options" for dishes with choices; "Busy" or "Closed" from `closedReason()`.
+  - **Truck status:** the label reads "Busy · back at …" or "Opens …"; a heart on the truck header.
+  - **Cart:**
+    - each line shows its options, its own stepper and "+ Add a note for this dish"
+    - "Add to your order" (your scoring)
+    - Offers & coupons (code box plus listed offers)
+    - "When?" with time chips
+    - the coupon line in the bill
+  - **Order page:** options and notes on each line, "Ready by", "For 8:45 PM", refund notice, "How was (truck)?" stars and comment, Order again.
+  - **Account:** Favourites (trucks and dishes); Notifications with the alert switch and "Hear the alert".
+- **Ready alert on iPhone:**
+  - Uses `flutter_local_notifications` (Darwin) with **your `order_ready.wav`**, copied to `ios_app/ios/Runner/` and added to the Xcode project's resources, so both apps ring the same bell.
+  - Permission is asked after the first order. Tapping an alert opens the order.
+  - `AppDelegate` sets the notification delegate so alerts show while the app is open.
+  - For push later (B9 part 2): APNs needs `aps.sound = "order_ready.wav"`.
+- **Checked:**
+  - `flutter analyze` clean; 18 tests pass, 2 of them new widget tests: options → price → note → cart line; order page → rate → order again with the same options and note.
+  - Seen in the browser build at iPhone size: dish sheet, cart, coupon box.
+  - The Xcode project change and the notification sound are only checked by the macOS CI build, since this PC can't build iOS.
+- **Not done on iOS yet:** Help and Contact screens (yours exist on Android); live Supabase data (waits on B2 / the owner's project).
 

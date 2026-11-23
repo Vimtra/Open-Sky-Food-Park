@@ -99,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final featured = cat.items.where((m) => m.isFeatured && m.imageUrl != null && state.vegOk(m)).toList();
     final under10 = cat.items.where((m) => m.priceCents < 1000 && m.imageUrl != null && m.isAvailable && state.vegOk(m)).toList()
       ..sort((a, b) => a.priceCents.compareTo(b.priceCents));
-    final hearts = cat.items.where((m) => state.isFavorite(m.id)).toList();
+    final hearts = cat.items.where((m) => state.isFavouriteItem(m.id)).toList();
 
     return [
       if (cat.park.announcement != null)
@@ -858,7 +858,7 @@ class _DishCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final stall = state.catalog.stallById[item.stallId];
-    final fav = state.isFavorite(item.id);
+    final fav = state.isFavouriteItem(item.id);
     return Press(
       scale: 0.97,
       onTap: () => showDish(context, item),
@@ -896,7 +896,7 @@ class _DishCard extends StatelessWidget {
                       behavior: HitTestBehavior.opaque,
                       onTap: () {
                         HapticFeedback.lightImpact();
-                        AppScope.read(context).toggleFavorite(item.id);
+                        AppScope.read(context).toggleFavouriteItem(item.id);
                       },
                       child: Semantics(
                         button: true,
@@ -1006,7 +1006,7 @@ class _TruckCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(stall.cuisines.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: OsText.label.copyWith(color: OsColors.ink500, fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          OpenStatus(stall.isOpen),
+          OpenStatus(stall.isOpen, label: stall.statusLabel),
         ],
       ),
     );
@@ -1057,7 +1057,9 @@ class _TruckHeader extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  OpenStatus(stall.isOpen),
+                  Flexible(child: OpenStatus(stall.isOpen, label: stall.statusLabel)),
+                  const SizedBox(width: 8),
+                  _TruckHeart(stallId: stall.id, name: stall.name),
                   const Spacer(),
                   if (stall.phone != null)
                     Row(children: [
@@ -1144,3 +1146,39 @@ class _Signoff extends StatelessWidget {
         ),
       );
 }
+
+/// Saves a truck to favourites (Account → Favourites). Signed out, it says where to sign in.
+class _TruckHeart extends StatelessWidget {
+  const _TruckHeart({required this.stallId, required this.name});
+  final String stallId, name;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final on = state.isFavouriteStall(stallId);
+    return Press(
+      semanticLabel: on ? 'Remove $name from favourites' : 'Save $name to favourites',
+      onTap: () {
+        final s = AppScope.read(context);
+        if (s.account == null) {
+          showCupertinoDialog<void>(
+            context: context,
+            builder: (c) => CupertinoAlertDialog(
+              title: const Text('Sign in to save favourites'),
+              content: const Text('Your favourites are kept with your account. Sign in from the Account tab.'),
+              actions: [CupertinoDialogAction(isDefaultAction: true, onPressed: () => Navigator.of(c).pop(), child: const Text('OK'))],
+            ),
+          );
+          return;
+        }
+        HapticFeedback.lightImpact();
+        s.toggleFavouriteStall(stallId);
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(on ? CupertinoIcons.heart_fill : CupertinoIcons.heart, size: 20, color: on ? OsColors.chili600 : OsColors.ink500),
+      ),
+    );
+  }
+}
+
